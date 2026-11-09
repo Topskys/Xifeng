@@ -159,6 +159,24 @@
 5. 音频为本地 TTS 合成 —— 延迟可信，**识别质量不可替代真人录音**。
 6. 机器噪声是最大变量（同一配置 P95 355 ↔ 648）。任何延迟结论 MUST 注明当时 CPU 占用，否则不可比。
 
+## 4.5 VAD 搬进 Rust 后的实测（2026-11-09，D13 第 2 阶段）
+
+ime-vad（能量法切分 + Silero 概率滞回 + 首尾裁剪）与 Python 版逐字节等价
+（	ests/test_vad_parity.py 20 个用例，含真实 wav 与随机对照），耗时对比
+（ixtures/quality/03.wav，8.00s，取 300 次均值）：
+
+| 操作 | Python(numpy) | Rust(debug) | Rust(release) | release 提速 |
+|---|---|---|---|---|
+| segment 能量法切分 | 3.197ms | 7.072ms | **0.473ms** | **6.8×** |
+| 	rim 首尾裁剪 | — | 40.495ms | **0.873ms** | — |
+
+> **debug 构建比 numpy 慢 1.6×，release 快 6.8×**。所以 	ools/build_ext.py 默认
+> 该用 --release；debug 只用于排错。这条差异若不测会得出完全相反的结论。
+>
+> VAD 只在 use_vad=true 时进入热路径（默认关），且 	rim 本来就在主链路上：
+> 8s 音频从 ~3ms 降到 <1ms，对 1500ms 预算影响可忽略，收益在其他地方（无 GIL、
+> 与 ASR 并行时不吃解释器锁）。
+
 ## 5. 测量环境自检（2026-11-09 起自动）
 
 ench.py 启动时先用 oiceime_spike/benv.py 采一次环境，按档位自动选预算，

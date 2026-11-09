@@ -12,4 +12,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 ime-post = { path = "../ime-post" }
+ime-vad = { path = "../ime-vad" }
 pyo3 = { version = "0.30", features = ["extension-module", "abi3-py311"] }

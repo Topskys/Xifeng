@@ -10,10 +10,58 @@ start_prob=0.5 / end_prob=0.35；G4：丢弃段两侧 MUST 留 60ms 缓冲。
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+
+# ---------------------------------------------------------------- 后端
+#
+# Rust 侧 crates/ime-vad 是同一套算法的实现，本文件的纯 Python 版本保留为
+# **行为基准**：两边必须逐字节等价，由 tests/test_vad_parity.py 证明。
+# Silero 模型前向仍留在 Python（sherpa-onnx），Rust 只接它吐出的概率流。
+
+_REQUESTED_BACKEND = os.environ.get("VOICEIME_VAD_BACKEND", "auto").strip().lower()
+
+_rs = None
+if _REQUESTED_BACKEND != "py":
+    try:  # pragma: no cover - 取决于是否构建过 Rust 扩展
+        import voiceime_rs as _rs
+    except ImportError:  # 没构建过扩展：静默回退，不改变行为
+        _rs = None
+
+#: 当前生效的后端："rust" 或 "python"
+backend = "rust" if _rs is not None else "python"
+
+
+def _cfg_kwargs(cfg: "VadConfig") -> dict:
+    return dict(
+        sample_rate=cfg.sample_rate,
+        frame_ms=cfg.frame_ms,
+        start_ratio=cfg.start_ratio,
+        end_ratio=cfg.end_ratio,
+        start_prob=cfg.start_prob,
+        end_prob=cfg.end_prob,
+        start_frames=cfg.start_frames,
+        end_frames=cfg.end_frames,
+        min_speech_ms=cfg.min_speech_ms,
+        merge_gap_ms=cfg.merge_gap_ms,
+        pad_ms=cfg.pad_ms,
+    )
+
+
+def _trim_kwargs(cfg: "TrimConfig") -> dict:
+    return dict(
+        frame_ms=cfg.frame_ms,
+        peak_ratio=cfg.peak_ratio,
+        noise_ratio=cfg.noise_ratio,
+        abs_floor=float(cfg.abs_floor),
+        lead_ms=cfg.lead_ms,
+        tail_ms=cfg.tail_ms,
+        min_speech_ms=cfg.min_speech_ms,
+        min_saved_ratio=cfg.min_saved_ratio,
+    )
 
 
 @dataclass(frozen=True)
@@ -71,12 +119,21 @@ def _finalize(
 def segment(pcm: np.ndarray, cfg: VadConfig | None = None) -> list[tuple[int, int]]:
     """能量法切分，返回语音段 [(start_sample, end_sample), ...]。
 
-    M1 起是 Silero 不可用时的回退路径。
+    M1 起是 Silero 不可用时的回退路径。有 Rust 扩展时走 `ime-vad`。
     """
     cfg = cfg or VadConfig()
     pcm = np.asarray(pcm)
     if pcm.dtype != np.int16:
         pcm = pcm.astype(np.int16)
+
+    if _rs is not None:
+        return [(int(s), int(e)) for s, e in _rs.vad_segment(pcm, **_cfg_kwargs(cfg))]
+
+    return _segment_py(pcm, cfg)
+
+
+def _segment_py(pcm: np.ndarray, cfg: VadConfig) -> list[tuple[int, int]]:
+    """纯 Python 基准实现（行为基准，勿改语义）。"""
 
     frame_len = int(cfg.sample_rate * cfg.frame_ms / 1000)
     frames = _frames(pcm, frame_len, frame_len)
@@ -141,6 +198,20 @@ def probs_to_segments(
     - 段尾取最后一个 `p >= end_prob` 的窗，不含 hangover（同能量法的取舍）
     """
     total = total_samples if total_samples is not None else len(probs) * window
+    if _rs is not None:
+        # 用 pad/min_speech/merge_gap 全 0 的配置取"未 finalize"的原始段，
+        # 与纯 Python 分支语义一致（调用方 SileroVad.segment 自己还会 finalize 一次）
+        raw_cfg = VadConfig(
+            sample_rate=cfg.sample_rate, frame_ms=cfg.frame_ms,
+            start_ratio=cfg.start_ratio, end_ratio=cfg.end_ratio,
+            start_prob=cfg.start_prob, end_prob=cfg.end_prob,
+            start_frames=cfg.start_frames, end_frames=cfg.end_frames,
+            min_speech_ms=0, merge_gap_ms=0, pad_ms=0,
+        )
+        return [(int(s), int(e)) for s, e in
+                _rs.vad_segment_from_probs(list(probs), window, total,
+                                           **_cfg_kwargs(raw_cfg))]
+
     raw: list[tuple[int, int]] = []
     speaking = False
     seg_start = 0
@@ -234,6 +305,8 @@ def rebuild(pcm: np.ndarray, segments: list[tuple[int, int]]) -> np.ndarray:
 
     只做一次 ASR 是关键：既保持上下文，又不多付推理延迟。
     """
+    if _rs is not None:
+        return _rs.vad_rebuild(np.asarray(pcm, dtype=np.int16), list(segments))
     if not segments:
         return np.zeros(0, dtype=np.int16)
     return np.concatenate([pcm[s:e] for s, e in segments]).astype(np.int16)
@@ -273,6 +346,10 @@ def trim(
     """
     cfg = cfg or TrimConfig()
     x = np.asarray(pcm, dtype=np.int16)
+    if _rs is not None:
+        out, saved = _rs.vad_trim(x, sample_rate=sample_rate, **_trim_kwargs(cfg))
+        return out, int(saved)
+
     frame = int(sample_rate * cfg.frame_ms / 1000)
     if x.size < frame * 2 or frame <= 0:
         return x, 0

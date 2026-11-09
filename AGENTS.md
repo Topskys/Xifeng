@@ -10,8 +10,8 @@ PyInstaller 打包交付。Rust 版推迟（决策见 `docs/00-process/plan.md` 
 # 全部命令在 spike/ 下执行（uv 管理环境，Python 3.11，镜像已配清华源）
 cd spike
 uv sync                                  # 首次/依赖变更后
-uv run pytest                            # 单测（244 个，约 25s；ptt 时序用例占 17s）
-uv run python tools/build_ext.py         # 编译 Rust 扩展 voiceime_rs（PyO3）
+uv run pytest                            # 单测（264 个，约 25s；ptt 时序用例占 17s）
+uv run python tools/build_ext.py --release # 编译 Rust 扩展（debug 比 numpy 慢，默认用 release）
 uv run python run_spike.py --help        # 手动跑一次
 uv run python bench.py --n 20            # 输出各阶段 P50/P95（自动判环境档位）
 uv run python quality_check.py --wav-dir fixtures/quality   # 复算 CER
@@ -24,6 +24,7 @@ uv run python run_spike.py --tray        # 托盘常驻（默认按需开麦）
 
 # Rust（crates/，上机位置见 docs/02-guides/rust-env.md）
 cargo test -p ime-post                   # 后处理规则单测（21 个）
+cargo test -p ime-vad                    # VAD 算法单测（15 个）
 cargo build -p ime-py --release          # 只编译扩展，不装进 venv
 ```
 
@@ -54,7 +55,7 @@ hotkey(WH_KEYBOARD_LL) → 按需开麦(sounddevice, 16k i16) → asr(sherpa-onn
         托盘/统计/配置/历史/关于 = Web GUI(127.0.0.1:8642 + Edge --app)
 ```
 
-Rust 以 PyO3 扩展（`voiceime_rs.pyd`）参与：`crates/ime-post` 放规则，`crates/ime-py` 只做
+Rust 以 PyO3 扩展（`voiceime_rs.pyd`）参与：`crates/ime-post` 放文本规则，`crates/ime-vad` 放 VAD 算法，`crates/ime-py` 只做
 Python 签名 ↔ Rust 的转接。Python 侧保留纯 Python 基准实现，两边必须逐字节等价。
 
 ## 提交
@@ -106,5 +107,5 @@ voice-ime/
 │   ├── 05-gotchas.md
 │   └── reference/     # 闲聊.md 等原始素材
 ├── spike/             # 交付主程序（uv 项目）+ packaging/ + tools/build_ext.py
-└── crates/            # Rust 核心（PyO3 扩展）：ime-post 规则 / ime-py 转接
+└── crates/            # Rust 核心（PyO3 扩展）：ime-post 规则 / ime-vad 算法 / ime-py 转接
 ```

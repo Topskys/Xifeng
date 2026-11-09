@@ -1,0 +1,9 @@
+[package]
+name = "ime-vad"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "VoiceIME 语音活动检测：能量法切分 + Silero 概率双阈值滞回 + 首尾静音裁剪（Python 侧 vad.py 的等价实现）"
+
+[dependencies]

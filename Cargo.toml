@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ime-post", "crates/ime-py"]
+members = ["crates/ime-post", "crates/ime-vad", "crates/ime-py"]
 
 [workspace.package]
 version = "0.1.0"

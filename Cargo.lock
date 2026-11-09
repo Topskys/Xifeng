@@ -29,8 +29,13 @@ name = "ime-py"
 version = "0.1.0"
 dependencies = [
  "ime-post",
+ "ime-vad",
  "pyo3",
 ]
+
+[[package]]
+name = "ime-vad"
+version = "0.1.0"
 
 [[package]]
 name = "libc"

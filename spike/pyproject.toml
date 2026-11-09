@@ -1,0 +1,37 @@
+[project]
+name = "voiceime-spike"
+version = "0.1.0"
+description = "VoiceIME M0 spike：验证 ASR 真实耗时、SendInput 成功率、端到端延迟"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "numpy>=1.26",
+    "sounddevice>=0.4.6",
+    "sherpa-onnx>=1.10",
+    "pystray>=0.19",       # 托盘图标（M4）
+    "pillow>=10",          # pystray 需要位图
+    "pywebview>=6.2.1",
+    "llama-cpp-python>=0.3.36",   # 本地纠错模型运行时（Windows CPU wheel 见 vendor/）
+]
+
+# llama-cpp-python 在 PyPI 没有 Windows 预编译包，源码构建需要 MSVC/cmake；
+# 仓库内 vendor 一份官方 CPU wheel，`uv sync` 直接按路径安装。
+[tool.uv.sources]
+llama-cpp-python = { path = "vendor/llama_cpp_python-0.3.36-py3-none-win_amd64.whl" }
+
+[dependency-groups]
+dev = ["pytest>=8", "pyinstaller>=6.11"]
+
+# 国内镜像：pypi 直连 1.7s、清华 0.33s（2026-10-28 实测）
+[[tool.uv.index]]
+name = "tuna"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
+# spike 不打包、不安装自身，仅作为可运行脚本目录
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]

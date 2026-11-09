@@ -1,0 +1,238 @@
+# 打包与交付（PyInstaller）
+
+**技术路线**：Python 主流程直接交付，不再为 M0 引入 Rust。见 `00-process/plan.md` 偏离 D6。
+
+工具选型：**PyInstaller（onedir）**。不用 Nuitka —— Nuitka 要 C 编译器（MSVC 3.5–5GB
+或 MinGW 0.5GB），PyInstaller 纯 Python 即可；onedir 也不用像 onefile 那样每次启动
+解压 17MB 的 `onnxruntime.dll`。
+
+## 前置
+
+```bash
+cd spike
+uv sync          # 已包含 dev 依赖 pyinstaller>=6.11
+```
+
+无需 MSVC / gcc / rustup。
+
+## 构建
+
+⚠ **必须用 Medium 完整性进程构建**。本仓库目录（`D:\project\workspace`）带 Low 标签，
+目录内的 `.venv\Scripts\python.exe` 也是 Low：
+
+- Low 进程写不进 `%TEMP%` / `%LOCALAPPDATA%`（Medium 目录，no-write-up），
+  `tempfile.gettempdir()` 会**静默退回当前目录**；
+- 输出目录的标签决定 exe 的完整性级别 —— 落在仓库里的 exe 是 Low，全局钩子收不到硬件按键（G21/G24）。
+
+在普通（非 agent）终端里用目录外的解释器构建：
+
+```bat
+cd /d D:\project\workspace\voice-ime\spike
+uv venv %TEMP%\vi-venv --python 3.11
+set PYTHONPATH=D:\project\workspace\voice-ime\spike;D:\project\workspace\voice-ime\spike\.venv\Lib\site-packages
+%TEMP%\vi-venv\Scripts\python.exe packaging\build.py
+```
+
+产物：
+
+```
+%LOCALAPPDATA%\VoiceIME-build\dist\VoiceIME\
+├── VoiceIME.exe          5.5 MB
+├── VoiceIME-Tray.cmd     双击启动托盘（等价于 VoiceIME.exe --tray）
+└── _internal\            ~140 MB（python311 / onnxruntime / openblas / portaudio / sqlite3 / tkinter / pystray …）
+```
+
+模型默认**不打进包**（ASR 228MB + 纠错 491MB，单独升级更快）。
+
+> ⚠ PyInstaller `--noconfirm` 会**重建整个 `dist\VoiceIME` 目录**：上次放进去的
+> `models\` 会被删掉（构建结束会打印提示）。用户数据不在这里 —— 库默认在
+> `%LOCALAPPDATA%\VoiceIME\voiceime.db`，重建不会丢（见 G25）。
+
+## 模型放哪
+
+按优先级（`voiceime_spike/paths.py`）：
+
+1. 环境变量 `IME_MODELS_DIR`
+2. `<exe 同级>\models\asr\sensevoice-small-int8`
+3. 源码形态：`<仓库根>\models\asr\sensevoice-small-int8`
+
+纠错模型单独解析（`paths.llm_model_path()`），**不进交付包**：
+
+1. `IME_LLM_MODEL`（完整文件路径）
+2. `%LOCALAPPDATA%\VoiceIME\models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf`（默认，与 SQLite 同目录）
+3. 兼容旧布局：`<exe 同级>\models\llm\…`
+4. 源码形态：`<仓库根>\models\llm\…`
+
+为什么放数据目录：491MB，跟着包走会让每次构建/复制多 500MB，而且重建 `dist` 就丢（G25 同理）。
+缺失不致命：配置页显示"模型缺失"并给出目录，开关禁用，按原文注入。
+
+两种交付方式：
+
+```bat
+:: A. ASR 模型随包（复制到 dist，228MB）
+%TEMP%\vi-venv\Scripts\python.exe packaging\build.py --with-models
+
+:: B. 模型独立（推荐，程序 392MB 可单独更新）
+xcopy /E /I models\asr\sensevoice-small-int8 %LOCALAPPDATA%\VoiceIME-build\dist\VoiceIME\models\asr\sensevoice-small-int8
+
+:: 纠错模型（可选）：只放数据目录，不要复制进 dist
+mkdir "%LOCALAPPDATA%\VoiceIME\models\llm"
+copy models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf "%LOCALAPPDATA%\VoiceIME\models\llm\"
+```
+
+## 数据与命令（打包后同样可用）
+
+| 数据 | 位置 |
+|---|---|
+| 历史 / 统计 / 设置 | `%LOCALAPPDATA%\VoiceIME\voiceime.db`（不可写时回退 `<exe 同级>\data`） |
+| ASR 模型 | `<exe 同级>\models\asr\sensevoice-small-int8` 或 `IME_MODELS_DIR` |
+| 纠错模型（可选） | `%LOCALAPPDATA%\VoiceIME\models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf`（不进 dist）或 `IME_LLM_MODEL` |
+| 托盘日志 | `%LOCALAPPDATA%\VoiceIME\voiceime.log`（只记长度/结果/trace，不记识别全文） |
+| 音频 | 从不落盘 |
+
+```bat
+%EXE% --stats                 :: 次数 / 成功率 / P50 / P95
+%EXE% --history 20            :: 最近 20 条（含注入文本）
+%EXE% --web                   :: 主窗口（五页：统计/模型/配置/历史/关于）
+%EXE% --web --tab config      :: 直接开配置页（模型纠错开关在这里）
+%EXE% --tray                  :: 托盘常驻（隐藏控制台，无限 PTT，按需开麦）
+%EXE% --autostart on          :: 开机自启（HKCU\...\Run，带 --tray）
+%EXE% --autostart status
+%EXE% --autostart off
+%EXE% --tray --inject clipboard  :: 目标不吃 WM_CHAR 时改走剪贴板 + Ctrl+V
+%EXE% --text "呃 帮我把 voice i e 的 read me 提交" --no-inject
+:: → 帮我把 voice i e 的 read me 提交（纠错默认关）
+%EXE% --text "帮我把 voice i e 的 read me 提交" --correct --no-inject
+:: → 帮我把 VoiceIME 的 README 提交（首次冷启动 +4s）
+```
+
+`sherpa_onnx` 的 DLL 由 `--collect-all` 收进 `_internal`；`sqlite3` 随 Python 自带；
+`pystray`/`Pillow`（托盘）由 PyInstaller 的 hook + `--collect-all` 收进包内；
+`llama_cpp`（纠错运行时，含 `llama.dll`/`ggml*.dll`）同样用 `--collect-all`。
+`tkinter` 仍随包（`--gui` 是旧版兜底），主界面是 Web：`build.py` 把 `frontend/dist`
+复制成 `<exe 同级>/frontend`，所以交付目录 MUST 连同 `frontend` 一起分发。
+**纠错模型既不进 exe 也不进 dist**：491MB，放 `%LOCALAPPDATA%\VoiceIME\models\llm`
+（与 SQLite 同目录，重建 dist 不丢）；缺失时配置页显示"模型缺失"并给出该目录，
+开关禁用，语音输入照常（只是没有纠错）。`build.py` 不再复制它。
+
+**运行库（CRT）**：`build.py` 末尾会跑 `fix_msvc_runtime()` —— 用 `System32` 里更新的
+`msvcp140`/`vcruntime140`/`vcruntime140_1`/`concrt140` 覆盖 `_internal` 里的旧副本。
+PyInstaller 会从某个依赖里收进旧 `msvcp140.dll`（实测 14.31），而 Windows 优先加载 exe
+同目录的副本，于是顶掉系统的 14.42；llama.cpp 的 DLL 是 14.40 工具链构建的，混用旧 CRT
+会让 `--correct` 崩在 `llama_backend_init()`（`access violation reading 0x0`，G33）。
+**不要用"删掉这个 DLL"来修**，目标机可能没装 VC redist。
+
+## 实测（2026-10-29，本机 8 核）
+
+| 项 | 数字 |
+|---|---|
+| 构建耗时（`--clean`） | 34.4s（PyInstaller 6.22.3） |
+| 程序体积（不含模型） | 145.7 MB / 1228 个文件；exe 5.5 MB |
+| 交付体积（含模型） | 374.1 MB / 1230 个文件 |
+| `--text` 冷启动 | 1.98s（bootloader + numpy 导入） |
+| `--wav`（4.61s 音频） | 全程 3.67s，其中 ASR 352ms；模型加载约 2.6s（一次性） |
+| `--wav`（6.53s 音频） | ASR 466ms，e2e 467ms |
+| `--wav`（8.00s 音频，带数据层） | ASR 537ms，`fixes=2`（当时规则层），历史正常写入 |
+| `--ptt`（自注入 Ctrl 1.5s） | 收 1.94s，`1/1 次注入成功`，`完整性=Medium(0x2000)` |
+| `--ptt --no-inject`（**物理键**，16.6s 音频） | 钩子收到按键，`mode=ptt outcome=Injected`，ASR 1190ms / e2e 1191ms |
+| `--ptt`（**物理键 + 真注入**，7.4s 音频） | `strategy=unicode`，ASR 567ms + 注入 21ms，**e2e 588ms**，文字落在前台窗口 |
+| `--wav`（4.61s + 11s 静音） | 裁掉 12.1s，ASR **283ms**（未裁时 552ms）；5 句带裁剪 CER 仍 **0.0%** |
+| `--tray`（冻结 exe） | 控制台 `hwnd=0`（已隐藏），日志落 `%LOCALAPPDATA%\VoiceIME\voiceime.log`，`完整性=Medium(0x2000)` |
+| `--gui`（冻结 exe，`CREATE_NO_WINDOW` 拉起） | 旧版 tkinter 四页兜底，读真实库 `%LOCALAPPDATA%\VoiceIME\voiceime.db`；日常入口是 `--web` |
+| `--autostart on/off`（冻结 exe） | 写入/删除 `HKCU\...\Run\VoiceIME = "...\VoiceIME.exe" --tray` |
+| `--tray --inject clipboard`（跨进程 WinForms `Edit`） | 注入 **507ms**（含 500ms 恢复等待），文本落地，剪贴板还原为注入前哨兵 |
+| `--inject auto`（同一目标） | **28–39ms**；Unicode 成功即返回，不碰剪贴板；探测到没打进去才降级 |
+
+启动 1.98s 在 spec 的 <5s 内；ASR 数字与源码形态一致（打包不引入推理开销）。
+
+### 2026-10-30 复测（含本地纠错）
+
+| 项 | 数字 |
+|---|---|
+| 交付体积（ASR 模型随包，纠错模型不进包） | 392.2 MB / 1294 个文件；exe 6.3 MB |
+| 纠错模型（单独放数据目录） | 469 MB → `%LOCALAPPDATA%\VoiceIME\models\llm` |
+| `--wav fixtures/quality/01.wav`（纠错关，`sherpa`） | ASR 331ms，e2e **353ms** |
+| 同上 + `--correct` | 模型加载 + warmup 1855ms（一次性），纠错 693ms，e2e **1047ms** |
+| `--text "…read me…" --correct`（G33 修好后） | `[correct] applied fixes=1 519ms` |
+| 冻结包 `--correct` 崩溃 | 已修：旧 `msvcp140` 顶掉系统版（G33） |
+| 托盘开启纠错启动 | `[correct] qwen2.5-0.5b-instruct-q4_k_m 已加载，已热身（1660ms）` |
+
+## 验收清单
+
+```bat
+set EXE=%LOCALAPPDATA%\VoiceIME-build\dist\VoiceIME\VoiceIME.exe
+
+:: 1. 不加载模型，验证 boot + 文本规则
+%EXE% --text "呃 今天 嗯 开会" --no-inject
+
+:: 2. 真实模型，验证 DLL 收集与模型路径
+%EXE% --wav D:\project\workspace\voice-ime\spike\fixtures\quality\01.wav --no-inject --print-raw
+
+:: 3. PTT：看第一行必须是 完整性=Medium(0x2000)
+%EXE% --ptt --backend mock --no-inject
+
+:: 4. 数据层：库路径 + 历史可查
+%EXE% --text "呃 今天 嗯 开会" --no-inject
+%EXE% --wav D:\project\workspace\voice-ime\spike\fixtures\quality\03.wav --no-inject
+%EXE% --history 3
+%EXE% --stats
+```
+
+第 3 步若打印 `Low(0x1000)`，说明 exe 建在了带 Low 标签的目录里 —— 按上面「构建」一节
+换 Medium 解释器与 `%LOCALAPPDATA%` 输出重新打包，别在仓库里改代码。
+
+第 4 步的 `--text` 应打印 `[post] cleaned='今天 开会'`；`--stats` 的 `[db]` 行应是
+`%LOCALAPPDATA%\VoiceIME\voiceime.db`。
+
+第 4.5 步验证模型纠错（可选；模型放 `%LOCALAPPDATA%\VoiceIME\models\llm`，不在包里）：
+
+```bat
+%EXE% --text "帮我把 voice i e 的 read me 提交" --correct --no-inject
+:: → [correct] applied … [post] cleaned='帮我把 VoiceIME 的 README 提交'
+%EXE% --text "这个会议机要发给我" --correct --no-inject
+:: 守卫拒绝时打印 [correct] 保留原文（…），cleaned 保持原句
+```
+
+第 5 步验证托盘 / Web 界面 / 自启（都在 Medium 下跑）：
+
+```bat
+:: 5. 托盘：启动后控制台应消失，任务栏通知区出现蓝色麦克风图标
+%EXE% --tray
+::    右键图标 → 打开主窗口 / 统计 / 模型 / 配置 / 历史 / 关于 / 开机自启 / 退出
+
+:: 6. Web 独立进程：不加载模型，秒开（本地 127.0.0.1:8642 + Edge 应用窗口）
+%EXE% --web --tab config
+
+:: 7. 开机自启（写 HKCU，不需要管理员）
+%EXE% --autostart on
+%EXE% --autostart status
+%EXE% --autostart off
+```
+
+`--tray` 会先隐藏控制台再加载模型（开机自启不会闪黑窗）；日志在
+`%LOCALAPPDATA%\VoiceIME\voiceime.log`。重复启动第二个托盘会被命名 Mutex 挡掉。
+`--web` 需要 exe 同级的 `frontend/` 目录；关窗 30s 后服务自动退出，
+再次点托盘菜单会重新起服务（已有服务时只开窗口）。
+
+## 交付
+
+把整个 `VoiceIME` 目录复制到未打标的安装位置（例如
+`C:\Users\<你>\AppData\Local\Programs\VoiceIME`），建快捷方式即可。**不要**放在
+`D:\project\workspace\` 下 —— 那里是 Low。
+
+安装目录别和 `%LOCALAPPDATA%\VoiceIME` 混用：后者是**用户数据**目录（历史/设置），
+升级时如果整体替换安装目录，数据会跟着没。
+
+日常使用：双击 `VoiceIME-Tray.cmd`（或 `VoiceIME.exe --tray`），再用
+`--autostart on` 让它开机常驻；需要看历史/改术语时从托盘打开窗口。
+
+## 已知限制
+
+| 限制 | 影响 | 计划 |
+|---|---|---|
+| 控制台程序 + 运行期隐藏 | 启动瞬间可能闪一下窗口（pystray 之前） | 可改 `--windowed` 双份产物，但体积翻倍，暂不做 |
+| 模型外置 | 复制目录时容易漏 | `--with-models` 或后续安装包 |
+| 无代码签名 | SmartScreen 首次拦截 | 后续 |
+| 每次启动加载模型 ~2.6s | 托盘常驻后只付一次 | 已由 `--tray` + 开机自启覆盖 |
+| `auto` 只兜底可读控件 | 控制台/游戏/自绘控件读不到文本，不自动兜底（防重复注入） | 用 `--inject clipboard` 显式指定 |
+| 剪贴板兜底会短暂占用剪贴板 | 约 500ms 内其他程序的复制会丢 | `--clipboard-restore-ms` 可调；检测到被改写会跳过恢复 |

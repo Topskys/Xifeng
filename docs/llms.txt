@@ -1,0 +1,53 @@
+# VoiceIME
+
+> 本地语音输入法。Python 主流程（sounddevice + ctypes Win32） + SenseVoice ASR，
+> PyInstaller 打包交付；Rust 版推迟（`00-process/plan.md` D6）。
+> 按住热键说话，松开出字，落在光标处。端到端 P95 ≤ 1.5s（硬指标）。
+> 纠错由本地 Qwen2.5-0.5B 完成（默认关，开启后 +0.5–1.5s，见 G32），不再有术语表。
+
+修改任何代码前，按任务读取对应文档。延迟预算与坑位清单为强制阅读项。
+
+## 硬约束（适用于一切代码变更）
+
+- 端到端 P95 不得超过 1500ms；新增处理 MUST 在 `01-overview/latency-budget.md` 登记额度
+- 模型纠错默认关；开启时其输出 MUST 通过守卫（句首/连续删词、大改、解释性输出一律丢弃）
+- 音频与文本 MUST NOT 离开本机；唯一网络请求是模型下载
+- 不录音时 MUST NOT 占用麦克风：默认按下热键才开流，松开后关闭
+- 音频回调里 MUST NOT 做 IO/日志/推理/加锁；≥10Hz 的实时处理 MUST 留在回调之外
+- 注入文本 MUST 经 `postprocess`；空结果不注入
+- 剪贴板兜底 MUST 恢复原内容；若期间剪贴板已被改写则 MUST NOT 覆盖
+- 日志 MUST NOT 记录识别文本全文
+
+## 过程文档（SDLC 工件，`00-process/`）
+
+| 文件 | 闸门 | 内容 |
+|---|---|---|
+| `00-process/intent.md` | G0 | 要什么、为什么、成功标准 |
+| `00-process/spec.md` | G1 | 需求 + 延迟预算 + 接口契约 |
+| `00-process/plan.md` | G2 | 改哪些文件、顺序、风险、怎么证明 |
+| `00-process/review.md` | G4 | 复审清单 |
+| `00-process/sdlc.md` | — | 本项目开发流程（闸门/反馈回路/反模式） |
+
+## 技术文档
+
+- `01-overview/architecture`：进程模型、模块划分、线程模型、选型理由
+- `01-overview/latency-budget`：各阶段额度表与降级规则（硬约束）
+- `02-guides/quickstart`：5 分钟跑通一次语音输入
+- 界面：`run_spike.py --web`（vite+react+shadcn，Edge 应用模式窗口）；`--gui` 为 tkinter 旧版
+- `02-guides/packaging`：PyInstaller 打包、模型放置、交付目录与验收（G24）
+- `02-guides/rust-env`：Rust 工具链装在哪（`D:\env`）、最小安装集、镜像与 SourceForge 坑
+- `03-core-concepts/hotkey`：PTT 键位、钩子/轮询采集、误触保护、取消、读不到键时怎么诊断
+- `03-core-concepts/pipeline`：状态机、打点位置、空结果路径
+- `03-core-concepts/postprocess`：幻觉过滤、语气词三级清理、归一化
+- `03-core-concepts/injection`：焦点快照、三种注入策略、失败模式
+- `03-core-concepts/storage`：SQLite 表结构、库位置、隐私边界、迁移与保留（G25）
+- `04-reference/metrics`：Trace 字段与统计口径
+- `05-gotchas`：已知坑位与对策（改相关模块前必读；G23 按需开麦、G31 Web GUI、G32 模型纠错、G33 冻结包 CRT、G34 浮窗毛玻璃）
+
+> 未落地：`03-core-concepts/{vad,correction}`、`04-reference/{config,ipc-protocol}`。
+> 纠错实现以 `spike/voiceime_spike/correction.py` 与 `05-gotchas.md` G32 为准。
+
+## 原始素材
+
+- `reference/闲聊.md`：与 AI 的设计对话全文，**是原料不是工件**，结论以 `00-process/*` 为准
+- `reference/ai-native-sdlc-playbook.md`：通用 SDLC 范式精读（跨项目参考，非本项目规范）

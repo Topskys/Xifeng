@@ -1,0 +1,235 @@
+# Plan: M0 — 走通一次语音输入
+
+Status: **M0 已闭环**；M3（GUI）与 M4（托盘/自启/无窗口）已增量完成（2026-10-29）  
+Spec: `spec.md`（2026-10-28）  
+判据: `spec.md` §7（A0-1 ~ A0-7）
+
+---
+
+## 0. 前置：本机现状
+
+| 项 | 现状 | 影响 |
+|---|---|---|
+| Rust 工具链 | **未安装** | 不能直接开始 Rust 实现 |
+| Python | 3.13.3（venv 内 3.11.15） | 可用；3.13 与最终 embeddable 3.11 不同，仅用于诊断 |
+| Node / pnpm | 24.6 / 12.4 | 可用（M3 才需要） |
+| 麦克风 | ✅ 已验证（真人 5 句录音，4.6–8.0s） | Step 4 可用同一批 wav 做回归 |
+| 模型文件 | ✅ SenseVoice int8（239MiB）+ tokens.txt | Step 5 可直接比数 |
+
+**决策**：先做 **Step 0 的 Python spike**，用同一套接口契约（`spec.md` §4）验证三个未测量假设，再决定是否按原设计进入 Rust。这是"先降不确定性，再写正式代码"。
+
+---
+
+## Step 0 · Python spike（先跑起来）
+
+**目的**：在不装 Rust 的前提下，验证 spec 里三个 Open Question。
+
+| 子步骤 | 产出 | 验证 | 状态 |
+|---|---|---|---|
+| 0.1 目录 + Trace 结构 | `spike/voiceime_spike/trace.py` | 能输出各阶段耗时 | ✅ |
+| 0.2 文本清理 | `spike/voiceime_spike/postprocess.py` | 单测全绿 | ✅ |
+| 0.3 能量 VAD（临时替身） | `spike/voiceime_spike/vad.py` | 能切出语音段 | ✅ |
+| 0.4 ASR 适配 | `spike/voiceime_spike/asr.py` | 有模型走 sherpa-onnx，无模型走 mock | ✅ |
+| 0.5 注入 | `spike/voiceime_spike/inject.py` | `inject_smoke.py` 5/5 | ✅ chunk=32 与 chunk=8 均 5/5 |
+| 0.6 管线串联 | `spike/voiceime_spike/pipeline.py` | 一条命令跑通 | ✅ |
+| 0.7 延迟 bench | `spike/bench.py` | 输出 P50/P95 | ✅ 空载/带载均已测 |
+| 0.8 模型下载 | `spike/fetch_model.py` | 239MiB 断点续传 | ✅ |
+| 0.9 环境 | `spike/pyproject.toml`（uv + 清华源） | `uv sync` <30s | ✅ |
+| 0.10 识别质量（CER） | `spike/quality_check.py` | 真人读 5 句，平均 CER ≤15% | ✅ 3.3%（3/5 全对）；语言已固定 zh |
+| 0.11 全局 PTT 键 | `spike/voiceime_spike/hotkey.py` | 按住 Ctrl 说话、松开结束 | ✅ **物理键已实测**（2026-10-29 22:07，冻结 exe，`mode=ptt` 落库，16.6s 音频 ASR 1190ms）；自注入 e2e 2/2、`ptt_selftest.py` 4/4 |
+| 0.12 按键链路诊断 | `spike/key_diag.py` | 一次跑完给出"读不到键"的根因 | ✅ 已定位：工作目录带 Low 完整性（G21） |
+| 0.13 打包交付（Python） | `spike/packaging/build.py` | 双击即用，PTT 在 Medium 下可用 | ✅ onedir 145.6MB（+模型 374.1MB），启动 1.98s，PTT 物理键已实测（G24） |
+| 0.14 SQLite 数据层 | `spike/voiceime_spike/store.py` | 历史/统计/术语/设置可读写，迁移幂等 | ✅ `--stats/--history/--terms/--add-term`，WAL（G25）；**0.23 起术语相关 API 已删除**，现为 `--stats/--history` |
+| 0.15 规则层（术语表 + 复读） | `spike/voiceime_spike/glossary.py` | CER 从 3.3% → 0.0%（5/5 全对），无误伤 | ✅ 反例来自 `tests/test_glossary.py`（**0.23 起已下线**：`glossary.py`/`terms` 表/相关测试全部移除，纠错改由本地模型承担） |
+| 0.16 首尾静音裁剪 | `spike/voiceime_spike/vad.py` | 长静音不再触发幻觉，ASR 只跑语音段 | ✅ 15.6s（含 11s 静音）→ 裁 12.1s，ASR 1191→283ms；带裁剪重跑 CER **0.0%（5/5）** |
+| 0.17 托盘 + 开机自启 + 无窗口 | `voiceime_spike/{tray,autostart,applog}.py` | 常驻托盘、菜单开窗口/自启/退出、`--times 0` 无限 PTT | ✅ 冻结 exe 实测：控制台隐藏（`hwnd=0`）、日志落 `%LOCALAPPDATA%\VoiceIME\voiceime.log`、`--autostart on/off` 写入/删除 HKCU Run |
+| 0.18 GUI（M3） | `voiceime_spike/gui.py` | 常驻托盘另起进程开窗口；四页：统计 / 模型 / 配置 / 历史（术语表并入配置页）。统计页有 P50/P95、输入字数、识别次数、超时次数（e2e>5s）与运行状态（CPU/内存/GPU占用/推理线程/当前模型）；历史页有三级对照（原文→清理→纠错）与“已纠错/全部”筛选；配置页有热键、触发模式、语气词清理、注入方式、句末标点、中英文间距、首尾静音裁剪、模型下载源、ASR 推理线程、开机自启、本地数据目录 | ✅ tkinter 独立进程（`--gui --tab ...`）；冻结 exe 读真实库截图验证（2026-10-29） |
+| 0.19 剪贴板兜底注入 | `voiceime_spike/inject.py` | 不吃 `WM_CHAR` 的应用也能出字；剪贴板必须还回去 | ✅ `--inject auto|unicode|clipboard`；跨进程 WinForms `Edit` 实测：粘贴落地、探针识别、剪贴板恢复原内容（2026-10-29） |
+| 0.20 深/浅主题 + UI 修复批次 | `voiceime_spike/{ui,gui}.py`、`store.py` v3 | 双主题保存即生效；历史页带数据可渲染 | ✅ 设计令牌收进 `ui.Theme`（dark/light），`App.apply_theme` 原地重建 + DWM 标题栏；修复：`Page.row` 控件 z 序（G29A）、`self.dl/threads` 未挂、`Input` 占位符污染 var（G29C）、模型页 refresh 累积、history 缺 `fixes` 列（store v3 迁移）；视觉回归工具 `spike/ui_shots.py`（G30），临时产物进 `<仓库根>/temp/`（2026-10-30） |
+| 0.21 Web GUI（vite+react+ts+shadcn/tailwind） | `spike/frontend/`、`voiceime_spike/webgui.py`、`run_spike.py --web` | 五页 × 双主题截图自检通过 | ✅ 宿主 = 标准库 HTTP（仅 127.0.0.1:8642）+ Edge `--app` 窗口；pywebview 方案废弃（pythonnet 在本机加载失败，见 G31）；shadcn/ui 官方 CLI（new-york/zinc）+ 自定义 zinc 令牌；CDP 截图工具 `spike/cdp_shot.py`/`cdp_ask.py`（G31）；`build.py` 自动把 `frontend/dist` 复制为 `<exe 同级>/frontend`；五页（统计/模型/配置/历史/关于），统计页含结果分布/ASR 延迟/近 7 天趋势，主题经 `theme-color` meta 同步 Edge 标题栏（2026-10-30） |
+| 0.22 按需开麦 + 交付界面切到 Web | `voiceime_spike/{hotkey,popup,webgui,tray}.py`、`run_spike.py`、`frontend/` | 不按键时麦克风完全关闭；托盘菜单统一开 Web 五页 | ✅ `record_ptt` 改为等按下后 `LiveMic.start()`、松开 drain 后 `stop()/close()`（`--resident-mic` 把常驻保留为显式选项，见 G23）；浮窗 `bind()` 延迟到开录；`webgui.run(db, tab)` + 端口复用 + 30s 心跳看门狗；托盘菜单五页走 `--web --tab`，默认统计；侧栏 192px、卡片 8px 圆角、zinc 令牌对齐、7 天图柱宽限制；前端重建（2026-10-30）；冻结包 374.7MB 实测 `--web --tab about` 正常、关窗后 30s 服务自动退出 |
+| 0.23 纠错改由本地模型（术语表下线） | `voiceime_spike/correction.py`、`pipeline.py`、`settings.py`、`webgui.py`、`frontend/`、`packaging/build.py` | 默认关；开启后守卫必须拒绝删词/大改/解释性输出；配置页只剩一个「模型纠错」开关 | ✅ Qwen2.5-0.5B-Instruct Q4_K_M（491MB，外置 `models/llm`）+ llama-cpp-python CPU wheel；懒加载 + 启动 warmup（1.1s / 1.7s）；热身后 0.35–1.5s/句；实测 `帮我把…` 因 `drop-start` 回退、`三点` → `三点二十` 因 `edge-add` 回退、`red me` → `README` 通过；`glossary.py`/`terms` 表/CLI 术语命令/Web terms API 全部移除（旧库表保留不删）；`build.py` `--collect-all llama_cpp`；纠错模型**不进包**（放 `%LOCALAPPDATA%\VoiceIME\models\llm`），交付包 392.2MB / 1294 文件，`fix_msvc_runtime()` 修掉冻结包 `llama_backend_init` 段错误（G33）（2026-10-30） |
+
+| 0.24 录音浮窗（32px 毛玻璃条） | `voiceime_spike/popup.py`、`run_spike.py`、`tests/test_popup.py` | 按住 Ctrl 时出现：左图标 + 右实时音柱，毛玻璃背景、圆角、主题跟随主界面、整体高度 32px | ✅ 300×32：左 22px 蓝底麦克风（与托盘图标同源）+ 右侧 30 根镜像音柱（`deque` 滚动历史 + 正弦包络 + 静音呼吸）；毛玻璃 = `show()` 时 BitBlt 抓背后 300×32（15–18ms）→ 4× 超采样高斯模糊 → 主题色叠加 → 缩回，圆角用 `-transparentcolor` 阈值化抠掉（DWM 亚克力对 Tk 无效，G34）；窗口只建一次复用（`close()` 只 `withdraw()`，第二次起 30–50ms 出现，首次含 Tk 初始化 ~330ms）；`theme` 每次按键前从 SQLite 重读；截图失败/无 Pillow 静默退回半透明纯色面板；新增 8 个单测（219 passed）（2026-10-30） |
+
+**证明**：`cd spike && uv run pytest`（**219 passed**）+ `uv run python run_spike.py --help` 可运行 +
+`packaging/build.py` 产出 `%LOCALAPPDATA%\VoiceIME-build\dist\VoiceIME\VoiceIME.exe` +
+`uv run python quality_check.py --wav-dir fixtures/quality` 平均 CER 0.0%。
+
+---
+
+## Step 0.21 · M1：Silero VAD 双阈值切分（2026-10-30 起）
+
+Spec 依据：`spec.md` §9 M1 = "VAD 双阈值切分 + 无效段过滤 + 段重组"。
+现状：`vad.py` 只有能量法（`segment()` 临时替身 + `trim()` 首尾裁剪，0.16）；
+能量法对气声/极轻起音偏保守（见"仍待补"第 3 条）。
+
+| 子步骤 | 产出 | 验证 | 状态 |
+|---|---|---|---|
+| 1 模型 | `models/vad/silero_vad.onnx`（629KB，GitHub Release） | sherpa VadModel 加载 + is_speech 出概率 | ✅ 真人 4.61s：语音检出 3.33s，边界干净 |
+| 2 切分 | `vad.py` Silero 路径：`probs_to_segments` 双阈值滞回（0.5/0.35）+ `SileroVad` | 概率流单测 8 例 + fixture 切分冒烟 | ✅ |
+| 3 无效段过滤 | 段长 < min_speech_ms 丢弃（G4 缓冲） | 短毛刺用例丢弃、相邻段合并/分离 | ✅ |
+| 4 重组/回退 | `rebuild()` 不变；`cfg.use_vad` 走 Silero，模型缺失回退能量法 | `Pipeline._vad` + `load_vad()` 常驻单例 | ✅ |
+| 5 质量回归 | golden 5 句 CER | **未过**：切分+重组 4.8%、Silero 裁剪 3.9–5.7%（基线 0.0%）；弱起音咬字 + 混排英文对边界敏感（见 latency-budget §3） | ⚠️ 决策：PTT 维持能量裁剪；Silero 留给免按键连续模式（逐段 ASR） |
+| 6 延迟登记 | `latency-budget.md` §3 + `Trace.ms_vad` | 前向 1.2ms/窗（4.6s≈170–400ms） | ✅ |
+
+**结论（2026-10-30）**：M1 的机制层（双阈值切分/无效段过滤/段重组/回退）完成并单测；
+质量门槛显示 PTT 路径不应切换到 Silero（能量裁剪 0.0% 不可退化），Silero 供后续
+"VAD 免按键"模式（spec §9 M1 的另一半，尚未开工）。bench 当日数字无效（机器 62% 后台
+负载，ASR 全局 3–4× 变慢，与代码无关；热路径零改动），空闲时复测。
+
+**风险**：Python 侧延迟不代表 Rust 侧；spike 数字只用于判断"模型是否可用"，不作为最终 SLO 依据。
+
+**实测结果**：
+
+| 日期 | 内容 | 数字 |
+|---|---|---|
+| 2026-10-28 | TTS 4.49s，8 线程 | ASR P50 329 / P95 355ms（RTF≈0.073），e2e P95 356ms |
+| 2026-10-29 | 真人 5 句 CER | 3.3%（3/5 完全正确），配置 `language=zh` + 关 ITN |
+| 2026-10-29 | 真人 4.61s，8 线程，CPU ~39% | ASR P50 512 / P95 539ms（RTF 0.111），e2e P95 582ms |
+| 2026-10-29 | 同音频对照 `auto`+ITN | ASR P50 528ms —— 配置不影响速度，只影响准确率 |
+| 2026-10-29 | PTT 时序自测（Medium + 自注入） | `ptt_selftest.py` 4/4；按住 700ms → 实测 702–708ms |
+| 2026-10-29 | PTT 端到端（自注入 Ctrl，常驻流） | 按住 1.5s → 收 2.15s（含前置缓冲）；`--ptt --times 2` 2/2 Injected |
+| 2026-10-29 | 规则层（术语表 + 复读折叠） | CER 3.3% → **0.0%**（5/5 全对），`ms_post` <1ms（0.23 起下线） |
+| 2026-10-30 | 模型纠错（Qwen2.5-0.5B Q4，CPU 8 线程） | 加载 1107ms、warmup 1749ms；热身后 **350–1500ms/句**；守卫拒绝率实测（`帮我把…` / 句尾续写 / 补句号 全部回退） |
+| 2026-10-30 | 冻结包（ASR 随包 392.2MB / 1294 文件，纠错模型不进包）纠错闭环 | `--wav` 纠错关 e2e 353ms；纠错开（warmup 1855ms + 纠错 693ms）e2e **1047ms**；`--text` `applied fixes=1 519ms`；修掉旧 `msvcp140` 导致的 `llama_backend_init` 段错误（G33） |
+| 2026-10-30 | 浮窗 32px 毛玻璃条（源码形态渲染实测） | BitBlt 抓 300×32 **15–18ms**（`ImageGrab` 整屏 60–85ms）；显示耗时：首次 330ms（Tk 初始化）、复用后 **30–50ms**；`dark`/`light` 双主题截图核对（G34） |
+
+数据见 `docs/01-overview/latency-budget.md`、`docs/04-reference/metrics.md`。
+
+**已完成**：真麦克风采集（4.42s → ASR 275ms）、注入成功率（`inject_smoke.py` 5/5，chunk 32 与 8 均通过）、真人识别质量（CER 3.3%）、PTT 采集实现（钩子 + 轮询兜底 + 250ms 误触保护 + MAGIC 去自激）、录音链路（默认按下才开麦 + `drain_ms=120`；`--resident-mic` 可换常驻 + `pre_ms=300`，G23）、首尾静音裁剪、托盘/开机自启/Web GUI、剪贴板兜底。
+
+**仍待补**：
+
+1. **`SendInput` 跨进程真实延迟**：spike 的注入耗时是同进程 Tk 目标，只作上界参考。
+2. **`auto` 的探测边界**：只有 Edit/RichEdit/Scintilla 这类能读文本的控件才敢自动兜底；
+   控制台、全屏游戏（DirectInput）读不到，需要用户显式 `--inject clipboard`（见 `03-core-concepts/injection.md`）。
+3. **静音裁剪的边界**：能量法对气声/极轻起音偏保守（省不到 10% 就不裁），
+   极端样本仍可能把噪声当语音；正式版换 Silero VAD（M1）后再收紧。
+
+---
+
+## Step 1 · 工具链与骨架
+
+工具链已落盘到 `D:\env`（最小集，C 盘不落组件，详见 `02-guides/rust-env.md`）：
+rustc/cargo 1.99.1、MSVC 14.44.35207、SDK 10.0.22621.0、NSIS 3.11（`makensis` 可用）。
+`just` 未装——纯 Rust 阶段先用 `cargo` 原生命令，真需要时再 `cargo install just --locked`。
+
+产出：
+
+```
+voice-ime/
+├── Cargo.toml                 # workspace
+├── justfile                   # setup / check / run
+├── rust-toolchain.toml
+├── crates/
+│   ├── ime-core/
+│   ├── ime-audio/
+│   ├── ime-infer/
+│   ├── ime-post/
+│   ├── ime-inject/
+│   ├── ime-hotkey/
+│   └── ime-service/
+└── python/ime_infer/
+```
+
+**证明**：`cargo check --workspace` 通过（空实现）。
+
+---
+
+## Step 2 · ime-post（纯逻辑，先做）
+
+理由：无外部依赖、可完全测试、是 spike 已验证规则的正式移植。
+
+- 文件：`crates/ime-post/src/{lib,hallucination,filler,normalize}.rs`
+- 词表：`resources/postprocess/{hallucination.txt,fillers.txt}`
+- 测试：`crates/ime-post/tests/golden.rs`，用例来自 `../05-gotchas.md` 的 G5、G10
+
+**证明**：`cargo test -p ime-post` 全绿；黄金用例与 spike 结果一致。
+
+---
+
+## Step 3 · ime-core（状态机 + Trace）
+
+- `state.rs`：`Idle/Recording/Decoding/Processing/Injecting/{Cancelled,Dropped,Failed}`
+- `trace.rs`：字段与 `spec.md` §5 一致
+- `pipeline.rs`：依赖 `trait Infer`，测试用 `MockInfer`
+
+**证明**：`cargo test -p ime-core` 覆盖每条状态转移与每种 outcome。
+
+---
+
+## Step 4 · ime-audio（cpal）
+
+- 16k/mono/i16；若设备不支持 16k，则按设备默认率采集后重采样（rubato 或线性插值）
+- 环形缓冲 + 无锁入队；回调内禁止分配/加锁/IO
+- 录音上限 60s
+
+**证明**：`cargo run -p ime-audio --example record -- 5` 生成 `out.wav`，时长与振幅合理。
+
+---
+
+## Step 5 · ime-infer（PyO3）
+
+- `abi3-py311` + 内嵌解释器
+- 推理线程唯一持有 GIL；音频线程永不触 Python
+- `transcribe(&[i16]) -> Result<Transcript>`，超时 5s
+
+**证明**：`cargo test -p ime-infer -- --ignored`（需模型）输出与 spike 一致。
+
+---
+
+## Step 6 · ime-inject（SendInput）
+
+- 焦点快照 `{hwnd, pid, tid, class, elevated, is_console}`
+- `Unicode` / `Clipboard` / `Auto`
+- 提权检测、ALT 恢复技巧、代理对按码元发送
+
+**证明**：`cargo run -p ime-inject --example inject -- "你好😀world"`，记事本读回一致。
+
+---
+
+## Step 7 · ime-service（串联）
+
+- rdev 全局热键（Ctrl 长按，Esc 取消；左右 Ctrl 均识别，与 spike 的 `--key` 对齐）
+- 串联 Step 2–6，写 `trace.jsonl`
+- 单实例锁；`IME_MODELS_DIR` 支持
+
+**证明**：`just run` 后完成 A0-1。
+
+---
+
+## Step 8 · 验收
+
+按 `spec.md` §7 逐条跑，结果记入 `../08-acceptance/records/M0-<date>.md`。
+
+---
+
+## 偏离计划时的处理
+
+实现与本文不符时，**在同一个 commit 更新本文件**。当前已知偏离：
+
+| # | 偏离 | 原因 | 影响 |
+|---|---|---|---|
+| D1 | 先 Python spike 后 Rust | 本机无 Rust 工具链 | 多一步，但降低"设计假设全错"的风险 |
+| D2 | M0 不接 VAD | spec §1 已排除 | 静音段依赖"按键起止"，噪声环境体验差 |
+| D3 | ~~M0 不落 SQLite~~ → **已撤销（2026-10-29）** | 用户要求"有数据的地方用 SQLite"；历史/统计/术语天然是结构化数据，`sqlite3` 是标准库零依赖 | 新增 `store.py` + `03-core-concepts/storage.md`；DB 落 `%LOCALAPPDATA%\VoiceIME`，Low 进程回退 `<spike>/.data`（G25） |
+| D4 | Python 环境用 `uv` + 清华镜像 | pip 直连 pypi 单次安装 6 分钟未完成；uv 全量 17s | 环境为 `spike/.venv`（Python 3.11），与最终 embeddable 3.11 对齐 |
+| D5 | 文档全部收进 `docs/`，根目录只留 `AGENTS.md` | 根目录文档会与代码抢注意力，且 `llms.txt` 已是入口 | 工件路径变深，引用需带 `00-process/` 前缀 |
+| D6 | **交付形态改为 Python + PyInstaller，Rust 推迟**（2026-10-29 用户决策） | Rust 环境约 6GB（MSVC+rustup）；实测 ASR 占 512ms、宿主语言只差 10–20ms，P95 582ms 远低于 1500ms 硬指标；打包纯 Python 即可交付 | Step 1–8（Rust）从"M0 主线"降级为"M2 之后再评估"；`spike/` 由验证物升级为交付主程序；新增 `packaging/build.py` 与 `02-guides/packaging.md`；M4 的 python embeddable 方案由 PyInstaller 取代 |
+| D7 | **托盘/无窗口用单份 console 产物 + `--tray` 隐藏控制台**（2026-10-29；GUI 部分 2026-10-30 更新） | 打两份 145MB 产物不值得；`ShowWindow(GetConsoleWindow(), SW_HIDE)` 即可，stdout 同时重定向到 `%LOCALAPPDATA%\VoiceIME\voiceime.log` | 主界面用 **Web 独立进程**（`--web`，vite+React+shadcn 五页 + Edge `--app`，0.21/0.22），`--gui` 的 tkinter 四页仅作兜底；托盘用 `pystray`；自启写 `HKCU\...\Run`（带 `--tray`）；命名 Mutex 防双实例 |
+| D8 | **首尾静音裁剪默认开启**（2026-10-29） | 物理键实测 16.6s 只说了开头，后半段静音被解码成 `喂喂喂…`；ASR 1191ms 有大半花在静音上 | 能量法保守裁剪（峰值 5% / 噪声 3× / 绝对 200 取大；省不到 10% 不裁），5 句真实音频带裁剪重跑 CER 仍 0.0%；`--no-trim` 可关 |
+| D9 | **麦克风改为按需开麦**（2026-10-30 用户决策，修订 G23 默认） | 常驻流让麦克风指示灯常亮、一直占用设备；实测代价是按下后 100–400ms 开流静默期，句首可能丢字（按住后先说「嗯」确认再说话可避开）。常驻模式保留为 `--resident-mic` 显式选项 | 取消「常驻流」为默认；`LiveMic` 每次录音新建、结束即关 |
+| D10 | **PTT 录音指示浮窗 + 组合键中止**（2026-10-30） | 用户要求：按住说话时有可视化反馈；Ctrl+其它键的组合不得触发语音 | `voiceime_spike/popup.py`（Tk 浮窗，按需开麦下 on_start 时绑定音量源）；`PttResult.combo`：按住期间任何其它键落下 → 整段丢弃（Esc 除外，仍走取消） |
+| D11 | **PTT 触发改为双击后保持长按**（2026-10-31 用户决策，取代 D10 的组合键中止为主防线） | 单击触发下 Ctrl 组合键依赖运行期检测，浮窗仍会闪现；双击天然过滤所有单击组合键 | `record_ptt(trigger="double")`：单击 ≤300ms → 500ms 内再次按下并保持 → 录音；组合键中止保留为录音中的第二道防线；`--single-press` 可回退旧方式；浮窗在录音开始时立即显示（不再需要说话声检测/延迟） |
+| D12 | **L1 模型纠错上线（M2 首版）**（2026-10-31） | 用户要求纠错覆盖整句优化（删多余/补缺失） | `voiceime_spike/correction.py`（Qwen2.5-0.5B Q4 + llama-cpp-python 0.3.36 CPU wheel，llama-server 方案废弃：v0.8.0 无 Windows 二进制）；few-shot 提示词 + 守卫拒绝回退 L0；默认关（配置页「模型纠错」开关）。与并行实现的 correct.py 去重：保留 correction.py | 实测 293–905ms/句（≤30 字）；0.5B 质量边际：纯指令跑偏成翻译（few-shot 修复），术语表进 prompt 会稀释示例（术语由 L0 先行替换） |
+
+---
+
+## 验证命令（一条命令原则）
+
+```bash
+just check                     # fmt + clippy + test（spike + rust）
+just run                       # 启动 ime-service
+cd spike && uv run python bench.py --n 20   # 输出 P50/P95
+```

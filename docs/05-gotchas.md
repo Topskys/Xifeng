@@ -728,6 +728,41 @@ Edge 必须用独立 `--user-data-dir` + `--remote-debugging-port=9222` + `--new
 - 截图前 MUST 先 `withdraw()`，否则底图里会拍到上一次的浮窗
 - 音柱的音量来自 `LiveMic.last_chunk`，RMS 在 `tick()` 里算 —— 音频回调里仍然只拷贝
 
+## G35 PyO3 扩展在本机构建：`maturin` 建临时目录被拒、`link.exe` 打不开 `%TEMP%`
+
+第一次接 Rust（`crates/ime-post` + `crates/ime-py`）时，`maturin develop` 直接失败：
+
+```
+💥 maturin failed
+Caused by: Failed to create temporary directory
+Caused by: 拒绝访问。 (os error 5) at path "C:\...\Temp\.tmpXXXX"
+```
+
+换成 `cargo build` 编译能过，但链接阶段又会：
+
+```
+LINK : fatal error LNK1104: 无法打开文件"C:\...\Temp\lnk{GUID}.tmp"
+```
+
+两条报错看着无关，其实是同一个根因：**本机进程对默认 `%TEMP%` 没有完整写权限**
+（普通 `echo > %TEMP%\x.txt` 能成，但需要显式安全描述符的创建会被拒）。
+旁证：Python 的 `tempfile.gettempdir()` 在这台机器上直接回退到**当前工作目录**。
+
+**解法**：构建时把 `TEMP`/`TMP` 指到 `D:\env\tmp`（`Authenticated Users: Modify`）。
+`spike/tools/build_ext.py` 就是 `cargo build` + 把 `voiceime_rs.dll` 改名 `.pyd` 放进
+site-packages —— 与 `maturin develop` 等价，但绕开它的临时目录步骤。maturin 仍在 dev
+依赖里，给 CI / 无限制的机器打 wheel 用。
+
+其他两条：
+
+- **Rust `regex` 没有 lookaround**。Python 侧填充词边界是 `(?=[punct\s]|$)`，
+  直接照搬会 `regex parse error: look-around ... is not supported`；
+  改成 `([punct\s]|$)` + 替换时吐回 `$2`（"吞边界再吐回"），删除语义等价。
+- **`\s` / `isspace` 的口径不完全一致**：Python `$` 还匹配结尾换行之前，Rust 只认
+  haystack 末尾；Python `isspace()` 认 `\x1c`–`\x1f`，Rust 不认。前者靠右边界里带
+  `\s` 兜住，后者 ASR 不会产生，暂不处理。
+
+
 
 
 

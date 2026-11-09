@@ -19,7 +19,11 @@ dependencies = [
 llama-cpp-python = { path = "vendor/llama_cpp_python-0.3.36-py3-none-win_amd64.whl" }
 
 [dependency-groups]
-dev = ["pytest>=8", "pyinstaller>=6.11"]
+dev = [
+    "pytest>=8",
+    "pyinstaller>=6.11",
+    "maturin>=1.16.0",
+]
 
 # 国内镜像：pypi 直连 1.7s、清华 0.33s（2026-10-28 实测）
 [[tool.uv.index]]

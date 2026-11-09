@@ -10,7 +10,8 @@ PyInstaller 打包交付。Rust 版推迟（决策见 `docs/00-process/plan.md` 
 # 全部命令在 spike/ 下执行（uv 管理环境，Python 3.11，镜像已配清华源）
 cd spike
 uv sync                                  # 首次/依赖变更后
-uv run pytest                            # 单测（219 个，<15s）
+uv run pytest                            # 单测（236 个，约 25s；ptt 时序用例占 17s）
+uv run python tools/build_ext.py         # 编译 Rust 扩展 voiceime_rs（PyO3）
 uv run python run_spike.py --help        # 手动跑一次
 uv run python bench.py --n 20            # 输出各阶段 P50/P95
 uv run python quality_check.py --wav-dir fixtures/quality   # 复算 CER
@@ -20,6 +21,10 @@ uv run python run_spike.py --tray        # 托盘常驻（默认按需开麦）
 
 # 打包（MUST 用仓库外的 Medium 解释器，见 docs/02-guides/packaging.md）
 %TEMP%\vi-venv\Scripts\python.exe packaging\build.py
+
+# Rust（crates/，上机位置见 docs/02-guides/rust-env.md）
+cargo test -p ime-post                   # 后处理规则单测（21 个）
+cargo build -p ime-py --release          # 只编译扩展，不装进 venv
 ```
 
 > Python 环境 MUST 用 `uv`（`spike/pyproject.toml` + `spike/.venv`）。
@@ -38,14 +43,25 @@ uv run python run_spike.py --tray        # 托盘常驻（默认按需开麦）
 - 日志禁止记录识别文本全文，只记长度与 outcome
 - 推理 MUST 在独立线程，**禁止** 在音频回调里调用 ASR
 - 不录音时 **禁止** 占用麦克风：默认按下热键才 `LiveMic.start()`，松开后关闭
+- 后处理（`postprocess`）规则 **禁止** 只改一边：`voiceime_spike/postprocess.py` 是基准，
+  `crates/ime-post` 是等价实现，`tests/test_postprocess_parity.py` 必须绿
 
 ## 架构
 
 ```
 hotkey(WH_KEYBOARD_LL) → 按需开麦(sounddevice, 16k i16) → asr(sherpa-onnx/SenseVoice)
-        └──────── pipeline: 状态机 + Trace ────────┘ → post → inject(SendInput)
+        └──────── pipeline: 状态机 + Trace ────────┘ → post(voiceime_rs) → inject(SendInput)
         托盘/统计/配置/历史/关于 = Web GUI(127.0.0.1:8642 + Edge --app)
 ```
+
+Rust 以 PyO3 扩展（`voiceime_rs.pyd`）参与：`crates/ime-post` 放规则，`crates/ime-py` 只做
+Python 签名 ↔ Rust 的转接。Python 侧保留纯 Python 基准实现，两边必须逐字节等价。
+
+## 提交
+
+**每完成一个阶段 MUST 提交一次**（一个阶段 = 一个可验证的闭环：能跑测试、能证明目标达成）。
+提交前跑过该阶段的门禁命令（`uv run pytest`、`cargo test` 等），提交信息按 Conventional Commits，
+正文写清「做了什么 / 怎么证明」。阶段内的小步可以攒，阶段结束不许留未提交改动。
 
 ## 常见错误（改这里之前先看）
 
@@ -60,6 +76,8 @@ hotkey(WH_KEYBOARD_LL) → 按需开麦(sounddevice, 16k i16) → asr(sherpa-onn
 - 改 VAD 阈值 / 分词规则必须跑 golden 用例，否则会静默误伤
 - 不要为了"便携"把 SQLite 放 exe 同级 —— 重建 dist 会清空（G25）
 - 不要让小模型"自由改写" —— 守卫必须拒绝删词/大改/解释性输出，宁可漏改（G32）
+- 不要在 Rust 正则里写 lookahead —— `regex` crate 不支持 lookaround，用"吞边界再吐回"
+- 不要把 `voiceime_rs.pyd` 拷进仓库 —— 它属于 venv/site-packages，构建走 `tools/build_ext.py`
 - 不要删产物里的 `msvcp140.dll` 修崩溃 —— 用 `build.py` 按版本号覆盖成系统的新版（G33）
 - 不要指望 DWM 亚克力能给 Tk 做毛玻璃 —— 浮窗是"截图 + 高斯模糊"（BitBlt 抓 300×32，G34）
 - 不要全局杀 `msedge` 或复用用户的浏览器窗口 —— 验证 MUST 用独立 `--user-data-dir` + 独立调试端口 + `--new-window`，收尾只关自己启动的 PID/profile
@@ -73,6 +91,7 @@ hotkey(WH_KEYBOARD_LL) → 按需开麦(sounddevice, 16k i16) → asr(sherpa-onn
 - 改延迟相关代码前必读：`docs/01-overview/latency-budget.md`
 - 改注入/音频/后处理前必读：`docs/05-gotchas.md`
 - 打包/交付：`docs/02-guides/packaging.md`
+- Rust 工具链 / PyO3 扩展怎么编：`docs/02-guides/rust-env.md`
 
 ## 目录约定
 
@@ -86,6 +105,6 @@ voice-ime/
 │   ├── 02-guides/     # quickstart / packaging
 │   ├── 05-gotchas.md
 │   └── reference/     # 闲聊.md 等原始素材
-├── spike/             # 交付主程序（uv 项目）+ packaging/
-└── crates/            # Rust 版（推迟，见 D6）
+├── spike/             # 交付主程序（uv 项目）+ packaging/ + tools/build_ext.py
+└── crates/            # Rust 核心（PyO3 扩展）：ime-post 规则 / ime-py 转接
 ```

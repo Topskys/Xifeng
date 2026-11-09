@@ -1,0 +1,15 @@
+[package]
+name = "ime-py"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "VoiceIME 的 PyO3 扩展：把 Rust 核心以 voiceime_rs 模块供 Python 调用"
+
+[lib]
+name = "voiceime_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+ime-post = { path = "../ime-post" }
+pyo3 = { version = "0.30", features = ["extension-module", "abi3-py311"] }

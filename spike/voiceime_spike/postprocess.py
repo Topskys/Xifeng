@@ -1,18 +1,41 @@
 """TextPostProcessor：ASR 输出到注入之间的文本清理。
 
 规则来源：spec.md §4.3 + docs/05-gotchas.md G5/G10。
-必须在 Rust 侧等价实现（plan.md Step 2），本文件是行为基准。
+Rust 侧 `crates/ime-post` 是同一套规则的实现（plan.md Step 2），本文件的纯 Python 版本
+保留为**行为基准**：两边必须逐字节等价，由 `tests/test_postprocess_parity.py` 证明。
 
 设计要点：
 - 纯函数，可幂等：process(process(x)) == process(x)
 - 返回 None 表示"不注入"（空/幻觉/纯语气词）
 - 中文填充词清理仅在含 CJK 时生效（英文里 er/um 是正常词）
+
+后端选择：
+- 默认 `auto`：装了 `voiceime_rs` 扩展就用 Rust（`uv run python tools/build_ext.py` 构建）
+- `VOICEIME_POST_BACKEND=py` 强制走纯 Python（排障 / 无 Rust 环境的兜底）
 """
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
+
+# ---------------------------------------------------------------- 后端
+
+_REQUESTED_BACKEND = os.environ.get("VOICEIME_POST_BACKEND", "auto").strip().lower()
+
+_rs_process = None
+_rs_stats = None
+if _REQUESTED_BACKEND != "py":
+    try:  # pragma: no cover - 取决于是否构建过 Rust 扩展
+        from voiceime_rs import process as _rs_process, stats as _rs_stats
+    except ImportError:  # 没构建过扩展：静默回退，不改变行为
+        _rs_process = None
+        _rs_stats = None
+
+#: 当前生效的后端："rust" 或 "python"
+backend = "rust" if _rs_process is not None else "python"
+
 
 # ---------------------------------------------------------------- 词表
 
@@ -144,8 +167,8 @@ def final_check(text: str) -> str | None:
 
 # ---------------------------------------------------------------- 管线
 
-def process(raw: str, cfg: PostConfig | None = None) -> str | None:
-    """五步管线，顺序固定。返回 None 表示不注入。"""
+def process_py(raw: str, cfg: PostConfig | None = None) -> str | None:
+    """五步管线，顺序固定。返回 None 表示不注入。（纯 Python 基准实现）"""
     cfg = cfg or PostConfig()
 
     t = filter_hallucination(raw)
@@ -168,10 +191,36 @@ def process(raw: str, cfg: PostConfig | None = None) -> str | None:
     return final_check(t)
 
 
-def stats(raw: str, cleaned: str | None) -> dict[str, int]:
-    """给统计页/日志用的计数（不含文本内容）。"""
+def stats_py(raw: str, cleaned: str | None) -> dict[str, int]:
+    """给统计页/日志用的计数（不含文本内容）。（纯 Python 基准实现）"""
     return {
         "chars_in": len(raw),
         "chars_out": len(cleaned) if cleaned else 0,
         "dropped": 1 if cleaned is None else 0,
     }
+
+
+# ---------------------------------------------------------------- 对外入口
+
+
+def process(raw: str, cfg: PostConfig | None = None) -> str | None:
+    """五步管线（按 `backend` 选择实现）。返回 None 表示不注入。"""
+    cfg = cfg or PostConfig()
+    if _rs_process is None:
+        return process_py(raw, cfg)
+    return _rs_process(
+        raw,
+        cfg.filler_level,
+        cfg.standalone,
+        cfg.repeat_limit,
+        cfg.final_punct,
+        cfg.space_between_cjk_latin,
+    )
+
+
+def stats(raw: str, cleaned: str | None) -> dict[str, int]:
+    """给统计页/日志用的计数（不含文本内容）。"""
+    if _rs_stats is None:
+        return stats_py(raw, cleaned)
+    return dict(_rs_stats(raw, cleaned))
+

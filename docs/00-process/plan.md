@@ -141,11 +141,19 @@ voice-ime/
 
 理由：无外部依赖、可完全测试、是 spike 已验证规则的正式移植。
 
-- 文件：`crates/ime-post/src/{lib,hallucination,filler,normalize}.rs`
-- 词表：`resources/postprocess/{hallucination.txt,fillers.txt}`
-- 测试：`crates/ime-post/tests/golden.rs`，用例来自 `../05-gotchas.md` 的 G5、G10
+- 文件：`crates/ime-post/src/lib.rs`（单文件：词表 + 五步管线 + 单测）
+- 词表：直接内联在 `lib.rs`（`HALLUCINATION` / `FILLERS_STANDARD` / `FILLERS_DEEP`），
+  不再单列 `resources/` —— 词表与规则强耦合，拆文件只会多点同步成本
+- 测试：`cargo test -p ime-post`（21 个，含 9 连阈值边界与 deep 档边界）
 
-**证明**：`cargo test -p ime-post` 全绿；黄金用例与 spike 结果一致。
+**状态：已落地（2026-11-09）**，并且是 **PyO3 接入的第一步**：
+
+- `crates/ime-py` 把 `ime-post` 包成 `voiceime_rs` 扩展模块（`abi3-py311`）
+- `spike/voiceime_spike/postprocess.py` 保留纯 Python 基准实现，默认自动切到 Rust 后端
+- `spike/tests/test_postprocess_parity.py` 用 40 条黄金用例 + 150 条随机串 × 9 组配置
+  证明两边逐字节等价；没有扩展时自动 skip，纯 Python 兜底
+
+**证明**：`cargo test -p ime-post` 21 绿；`uv run pytest` 236 绿；`postprocess.backend == "rust"`。
 
 ---
 
@@ -223,6 +231,7 @@ voice-ime/
 | D10 | **PTT 录音指示浮窗 + 组合键中止**（2026-10-30） | 用户要求：按住说话时有可视化反馈；Ctrl+其它键的组合不得触发语音 | `voiceime_spike/popup.py`（Tk 浮窗，按需开麦下 on_start 时绑定音量源）；`PttResult.combo`：按住期间任何其它键落下 → 整段丢弃（Esc 除外，仍走取消） |
 | D11 | **PTT 触发改为双击后保持长按**（2026-10-31 用户决策，取代 D10 的组合键中止为主防线） | 单击触发下 Ctrl 组合键依赖运行期检测，浮窗仍会闪现；双击天然过滤所有单击组合键 | `record_ptt(trigger="double")`：单击 ≤300ms → 500ms 内再次按下并保持 → 录音；组合键中止保留为录音中的第二道防线；`--single-press` 可回退旧方式；浮窗在录音开始时立即显示（不再需要说话声检测/延迟） |
 | D12 | **L1 模型纠错上线（M2 首版）**（2026-10-31） | 用户要求纠错覆盖整句优化（删多余/补缺失） | `voiceime_spike/correction.py`（Qwen2.5-0.5B Q4 + llama-cpp-python 0.3.36 CPU wheel，llama-server 方案废弃：v0.8.0 无 Windows 二进制）；few-shot 提示词 + 守卫拒绝回退 L0；默认关（配置页「模型纠错」开关）。与并行实现的 correct.py 去重：保留 correction.py | 实测 293–905ms/句（≤30 字）；0.5B 质量边际：纯指令跑偏成翻译（few-shot 修复），术语表进 prompt 会稀释示例（术语由 L0 先行替换） |
+| D13 | **Rust 以 PyO3 扩展参与，Python 保持主流程**（2026-11-09 用户决策，修订 D6） | D6 的「Rust 不重写主流程」仍成立——但把规则与 Win32 这类易静默出错的逻辑沉进 Rust 更稳，且不必承担 ASR/GUI 的移植成本。第 1 阶段实测：延迟几乎不变（postprocess <1ms、inject 10–39ms），收益在类型安全与可测性 | 新增 `crates/{ime-post,ime-py}`，产物 `voiceime_rs.pyd`（abi3-py311）；`postprocess` 默认走 Rust，纯 Python 保留为**行为基准 + 无扩展时兜底**，由 `tests/test_postprocess_parity.py` 逐字节校验；第 2 阶段再搬 hotkey/audio/VAD/inject |
 
 ---
 

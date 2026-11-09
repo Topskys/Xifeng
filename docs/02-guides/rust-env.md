@@ -82,3 +82,59 @@ cargo new D:\temp\smoke; cd D:\temp\smoke; cargo build   # Finished dev profile 
 | `cmake` / `ninja` | `llama-cpp-2`（纠错推理）用 `cmake` crate 编 C++，届时 `winget install Kitware.CMake` |
 | `just` | 计划里的 `justfile`；纯 Rust 阶段先用 `cargo` 原生命令即可 |
 | `sherpa-rs` 的 onnxruntime 动态库 | Step 5 接 ASR 时按平台带预编译 DLL，不走 cmake |
+
+---
+
+# PyO3 扩展 `voiceime_rs`
+
+Python 主流程不重写，Rust 以**扩展模块**参与：`crates/ime-post` 放规则，`crates/ime-py`
+只做 Python 签名 ↔ Rust 的转接（cdylib → `voiceime_rs.pyd`）。
+
+## 构建
+
+```powershell
+cd spike
+uv run python tools/build_ext.py            # debug
+uv run python tools/build_ext.py --release  # 更快更小
+```
+
+产物直接落到 `spike/.venv/Lib/site-packages/voiceime_rs.pyd`（**不进仓库**）。
+
+`abi3-py311`：一个 `.pyd` 覆盖 3.11+，PyInstaller 打包时不用跟着 Python 小版本换。
+
+## 为什么不用 `maturin develop`
+
+本机（沙箱环境）里 maturin 用 `tempfile` 建临时目录会被拒——`Failed to create temporary
+directory / os error 5`；`cargo build` 正常，但 `link.exe` 又会 `LNK1104` 打不开
+`%TEMP%\lnk{...}.tmp`。**两个问题同一个根因：进程对默认 `%TEMP%` 没有完整写权限。**
+
+可行做法：把 `TEMP`/`TMP` 指到 `D:\env\tmp`（`Authenticated Users: Modify`），
+`tools/build_ext.py` 就按这个环境跑。maturin 仍留在 dev 依赖里，供 CI / 无此限制的机器
+`maturin develop` 或 `maturin build --release` 打 wheel。
+
+## 验证
+
+```powershell
+uv run python -c "from voiceime_spike import postprocess as p; print(p.backend)"   # -> rust
+uv run pytest                                              # 236 个，含 parity
+cargo test -p ime-post                                     # 21 个规则单测
+```
+
+没构建过扩展时，`postprocess` 自动回退纯 Python（`backend == "python"`），`pytest` 依然全绿；
+`VOICEIME_POST_BACKEND=py` 可强制回退，用于对照排障。
+
+## 规则改动的流程（硬约束）
+
+`spike/voiceime_spike/postprocess.py` 是**行为基准**，`crates/ime-post` 是等价实现。
+改规则 MUST 两边一起改，并让 `spike/tests/test_postprocess_parity.py` 继续绿——它把
+40 条黄金用例 + 150 条确定性随机串 × 9 组配置逐一对比，任何一边漏改都会红。
+
+两个实现里的已知差异点（都在测试覆盖范围内，别再踩）：
+
+- **Rust `regex` 不支持 lookahead / lookbehind**。Python 侧填充词边界用的是
+  `(?=[punct\s]|$)`，Rust 侧改成 `([punct\s]|$)` + 替换时吐回 `$2`，删除语义等价。
+- **`$` 语义**：Python `$` 还匹配结尾换行之前，Rust 只匹配 haystack 末尾。这里靠
+  右边界同时包含 `\s` 兜住了，无 `\s` 的纯结尾仍等价。
+- **`\x1c`–`\x1f`**：Python `str.isspace()` 认为是空白，Rust `is_whitespace()` 不认。
+  ASR 输出不会出现这些控制字符，暂不处理；真遇到再加。
+

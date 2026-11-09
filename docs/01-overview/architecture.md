@@ -5,6 +5,12 @@
 > **2026-10-29 决策（D6）**：交付形态改为 **Python 单进程 + PyInstaller**，Rust 版推迟。
 > 下文的 Rust 目标态保留为"后续可选"，当前实现见 `spike/voiceime_spike/`：
 > `hotkey → LiveMic → asr(sherpa) → post → inject`，模块边界与下表一一对应。
+>
+> **2026-11-09 修订（D13）**：Rust **以 PyO3 扩展参与**，Python 仍是主流程。
+> 已落地部分是后处理：`crates/ime-post`（规则，纯 Rust）→ `crates/ime-py`（`voiceime_rs.pyd`，
+> abi3-py311）。Python 侧 `voiceime_spike/postprocess.py` 保留纯 Python 基准实现，
+> 默认自动走 Rust；`cargo test -p ime-post` 与 `tests/test_postprocess_parity.py` 两侧都校验。
+> 热键钩子 / 音频环 / VAD / 注入属于第 2 阶段。
 
 ## 进程模型（目标态）
 

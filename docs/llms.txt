@@ -38,7 +38,7 @@
 - `02-guides/rust-env`：Rust 工具链装在哪（`D:\env`）、最小安装集、镜像与 SourceForge 坑
 - `03-core-concepts/hotkey`：PTT 键位、钩子/轮询采集、误触保护、取消、读不到键时怎么诊断
 - `03-core-concepts/pipeline`：状态机、打点位置、空结果路径
-- `03-core-concepts/postprocess`：幻觉过滤、语气词三级清理、归一化
+- `03-core-concepts/postprocess`：幻觉过滤、语气词三级清理、归一化（Rust 实现见 `crates/ime-post`，两边由 parity 测试锁死）
 - `03-core-concepts/injection`：焦点快照、三种注入策略、失败模式
 - `03-core-concepts/storage`：SQLite 表结构、库位置、隐私边界、迁移与保留（G25）
 - `04-reference/metrics`：Trace 字段与统计口径

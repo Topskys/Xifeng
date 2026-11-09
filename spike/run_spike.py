@@ -42,6 +42,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="托盘常驻：隐藏控制台、无限次 PTT，菜单可开窗口/自启/退出（隐含 --ptt）")
     p.add_argument("--gui", action="store_true", help="打开主窗口（统计/模型/配置/历史）后退出")
     p.add_argument("--web", action="store_true", help="Web 主界面（Edge 应用模式窗口）")
+    p.add_argument("--ipc", action="store_true",
+                   help="stdio NDJSON 服务（Tauri 壳拉起）：不开 HTTP、不启托盘，日志全走 stderr")
     p.add_argument("--tab", default="stats",
                    choices=["stats", "models", "config", "history", "about"],
                    help="打开窗口时选中的页（默认 stats）")
@@ -170,6 +172,37 @@ def apply_user_settings(
     if args.download_source is None and cfg.download_source:
         args.download_source = cfg.download_source
     return cfg
+
+
+def ipc_mode(args: argparse.Namespace, argv: list[str] | None = None) -> int:
+    """IPC 模式：stdin/stdout 走 NDJSON，不开 HTTP、不启托盘、不装钩子。
+
+    协议硬红线：stdout 只准出现协议 JSON。这里在打开数据库**之前**就把
+    `sys.stdout` 换到 stderr，这样 `Store` 的 WAL 警告、任何遗留 `print`
+    都不会污染协议；原始 stdout 只交给 `ipc.serve` 写响应。
+    """
+    from voiceime_spike import ipc
+
+    proto_out = sys.stdout
+    # 协议要求 UTF-8：stdin 由 ipc.serve 改；stderr 是 Tauri 侧的日志管道，
+    # Windows 默认按 gbk 写，中文日志会变成非法字节——统一成 UTF-8。
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 - 不是 TextIOWrapper 就保持原样
+        pass
+    sys.stdout = sys.stderr
+    try:
+        store = open_store(args)
+        if store is None:
+            print("[ipc] ⚠ 无数据库（--no-db），使用内存库，数据不落盘", file=sys.stderr, flush=True)
+            store = Store(":memory:")
+        cfg = apply_user_settings(args, store, argv)
+        try:
+            return ipc.serve(store, cfg, stdout=proto_out)
+        finally:
+            store.close()
+    finally:
+        sys.stdout = proto_out
 
 
 def cmd_history(store: Store | None, limit: int) -> int:
@@ -459,6 +492,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.gui:
         from voiceime_spike import gui
         return gui.run(args.db, args.tab)
+
+    # IPC：Tauri 壳拉起的纯协议进程，不开 HTTP、不启托盘（契约见 ipc-contract.md）
+    if args.ipc:
+        return ipc_mode(args, argv)
 
     if args.web:
         from voiceime_spike import webgui

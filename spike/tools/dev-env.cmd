@@ -18,6 +18,12 @@ if not exist "D:\env\NSIS\Bin" goto skip_nsis
 set "PATH=D:\env\NSIS\Bin;%PATH%"
 :skip_nsis
 
+REM WebView2 needs a writable user-data folder. In this sandbox %LOCALAPPDATA%,
+REM %APPDATA% and %TEMP% are ALL read-only for our processes, so the default
+REM location makes webview creation fail with HRESULT 0x800700AA (ERROR_BUSY).
+if not exist "D:\project\workspace\voice-ime\.rust-temp\wv2" goto skip_wv2
+set "WEBVIEW2_USER_DATA_FOLDER=D:\project\workspace\voice-ime\.rust-temp\wv2"
+:skip_wv2
 echo [dev-env] CARGO_HOME=%CARGO_HOME%
 echo [dev-env] TEMP=%TEMP%
 cargo --version 2>nul

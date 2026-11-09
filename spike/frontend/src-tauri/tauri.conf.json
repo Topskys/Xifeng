@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.voiceime.app",
   "build": {
-    "beforeDevCommand": "pnpm --dir ../frontend run dev",
+    "beforeDevCommand": "pnpm run dev",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "pnpm --dir ../frontend run build",
-    "frontendDist": "../frontend/dist"
+    "beforeBuildCommand": "pnpm run build",
+    "frontendDist": "../dist"
   },
   "app": {
     "windows": [

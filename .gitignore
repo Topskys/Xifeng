@@ -24,6 +24,8 @@ vi-shots-*/
 # Rust
 target/
 .rust-temp/
+.pyitest/
+.tauri-work/
 *.pyd
 
 # SQLite 用户数据（源码 + Low 进程回退目录，见 docs/03-core-concepts/storage.md）

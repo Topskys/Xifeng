@@ -71,9 +71,31 @@ def dir_is_low(path: Path) -> bool:
     return "Low Mandatory Level" in out
 
 
+def check_rust_ext() -> None:
+    """确认 Rust 扩展能被导入，否则打出来的包会悄悄回退纯 Python。
+
+    为什么必须拦：`postprocess` / `vad` 都是"有扩展用 Rust，没有就静默回退"，
+    打包时若 venv 里没有 `voiceime_rs.pyd`，产物照样能跑，但性能与预期不符，
+    而且不会有任何报错——这类静默降级最难发现。
+    """
+    try:
+        import voiceime_rs  # noqa: F401
+    except ImportError:
+        raise SystemExit(
+            "[build] 缺少 Rust 扩展 voiceime_rs.pyd（产物会静默回退纯 Python）。\n"
+            "[build]   先构建：cd spike && uv run python tools/build_ext.py --release\n"
+            "[build]   注意必须用 --release：debug 版比 numpy 还慢（见 latency-budget.md §4.5）"
+        ) from None
+    ver = getattr(voiceime_rs, "__version__", "?")
+    funcs = sorted(n for n in dir(voiceime_rs) if not n.startswith("_"))
+    print(f"[build] Rust 扩展 OK：voiceime_rs {ver}（{len(funcs)} 个函数）")
+
+
 def build(out: Path, work: Path, with_models: bool, clean: bool) -> Path:
     if not ENTRY.exists():
         raise SystemExit(f"入口不存在: {ENTRY}")
+
+    check_rust_ext()
 
     if dir_is_low(out):
         print(f"[build] ⚠ 输出目录 {out} 带 Low 完整性标签 → exe 继承 Low，全局钩子失效（G21/G24）")
@@ -134,7 +156,24 @@ def build(out: Path, work: Path, with_models: bool, clean: bool) -> Path:
 
     write_launchers(app_dir)
     fix_msvc_runtime(app_dir)
+    verify_rust_ext(app_dir)
     return app_dir
+
+
+def verify_rust_ext(app_dir: Path) -> None:
+    """产物里必须真有 voiceime_rs.pyd，否则打回。
+
+    PyInstaller 通常能从 import 自动收集它（实测可行），但这条断言防的是
+    "构建机换了、扩展没装"这种环境问题——产物能跑，只是悄悄慢一半。
+    """
+    hits = list(app_dir.rglob("voiceime_rs*.pyd")) + list(app_dir.rglob("voiceime_rs*.so"))
+    if not hits:
+        raise SystemExit(
+            f"[build] 产物里找不到 voiceime_rs.pyd（{app_dir}）。\n"
+            "[build]   检查：venv 里是否装了扩展？PyInstaller 是否被 --exclude-module 挡了？"
+        )
+    for h in hits:
+        print(f"[build] 产物含 Rust 扩展：{h.relative_to(app_dir)}（{h.stat().st_size / 1024:.0f} KB）")
 
 
 CRT_DLLS = ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "concrt140.dll")

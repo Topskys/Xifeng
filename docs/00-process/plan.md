@@ -234,6 +234,8 @@ voice-ime/
 | D11 | **PTT 触发改为双击后保持长按**（2026-10-31 用户决策，取代 D10 的组合键中止为主防线） | 单击触发下 Ctrl 组合键依赖运行期检测，浮窗仍会闪现；双击天然过滤所有单击组合键 | `record_ptt(trigger="double")`：单击 ≤300ms → 500ms 内再次按下并保持 → 录音；组合键中止保留为录音中的第二道防线；`--single-press` 可回退旧方式；浮窗在录音开始时立即显示（不再需要说话声检测/延迟） |
 | D12 | **L1 模型纠错上线（M2 首版）**（2026-10-31） | 用户要求纠错覆盖整句优化（删多余/补缺失） | `voiceime_spike/correction.py`（Qwen2.5-0.5B Q4 + llama-cpp-python 0.3.36 CPU wheel，llama-server 方案废弃：v0.8.0 无 Windows 二进制）；few-shot 提示词 + 守卫拒绝回退 L0；默认关（配置页「模型纠错」开关）。与并行实现的 correct.py 去重：保留 correction.py | 实测 293–905ms/句（≤30 字）；0.5B 质量边际：纯指令跑偏成翻译（few-shot 修复），术语表进 prompt 会稀释示例（术语由 L0 先行替换） |
 | D13 | **Rust 以 PyO3 扩展参与，Python 保持主流程**（2026-11-09 用户决策，修订 D6） | D6 的「Rust 不重写主流程」仍成立——但把规则与 Win32 这类易静默出错的逻辑沉进 Rust 更稳，且不必承担 ASR/GUI 的移植成本。第 1 阶段实测：延迟几乎不变（postprocess <1ms、inject 10–39ms），收益在类型安全与可测性 | 新增 `crates/{ime-post,ime-py}`，产物 `voiceime_rs.pyd`（abi3-py311）；`postprocess` 默认走 Rust，纯 Python 保留为**行为基准 + 无扩展时兜底**，由 `tests/test_postprocess_parity.py` 逐字节校验；第 2 阶段**已搬 VAD**（crates/ime-vad，2026-11-09，release 下切分快 6.8×，20 个 parity 用例）；hotkey/audio/inject 待搬 |
+| D14 | **交付形态改为 Tauri 壳 + Python 子进程（方案 A）**（2026-11-09 用户决策，取代 D6 的 PyInstaller onedir） | 用户要求"转 tauri+前端+pyo3"。三选一（A 子进程 / B 内嵌解释器 / C 全重写 Rust）中选 A：前端 React 与 Python 核心零改动，风险最低、最快见效；代价是分发仍带 Python（约 60–80MB），但相比 PyInstaller 145MB 与 Edge `--app` 依赖仍有收益 | 新增 `spike/src-tauri/`（Tauri 2 窗口 + 子进程管理）；Python 侧加 `--ipc` 走 stdio NDJSON；契约见 `03-core-concepts/ipc-contract.md`（14 个 method 与 `webgui.Api` 一一对应）；前端 `api.ts` 按 `window.__TAURI__` 自动切换传输层，页面组件零改动；HTTP 模式保留供 `--tray` 与调试。**PyInstaller 不删**，作为 Python 核心的便携打包器并存 |
+
 
 ---
 

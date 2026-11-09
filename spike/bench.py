@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-from voiceime_spike import asr, audio
+from voiceime_spike import asr, audio, benv
 from voiceime_spike.pipeline import Pipeline, PipelineConfig, record_seconds
 from voiceime_spike.trace import percentiles
 
@@ -60,18 +60,26 @@ def summarize(values: list[int]) -> dict[str, int]:
     return p
 
 
-def fmt_row(name: str, p: dict[str, int], budget: int | None) -> str:
+def fmt_row(name: str, p: dict[str, int], budget: int | None, note: str = "") -> str:
     p50, p95, p99 = p["p50"], p["p95"], p["p99"]
     if budget is None:
         verdict = "—"
     else:
         verdict = "PASS" if p95 <= budget else "FAIL"
+    if note:
+        verdict += note
     b = "-" if budget is None else str(budget)
     return f"{name:<12}{p50:>7}{p95:>7}{p99:>7}{b:>9}   {verdict}"
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+
+    env = benv.probe()
+    print(f"[bench] 环境：{env.line()}")
+    print(f"[bench] 判档：{benv.TIER_NOTE[env.tier]}")
+    if not env.trusted():
+        print("[bench] [WARN] 本组数字不可信（高载或内存紧张）。建议关掉浏览器/IDE 后重跑。")
 
     cfg = PipelineConfig(use_vad=args.vad, do_inject=args.inject)
     pipe = Pipeline(cfg)
@@ -128,18 +136,34 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     if args.json:
-        print(json.dumps({"backend": backend, "seconds": round(seconds, 2), **stats}, ensure_ascii=False, indent=2))
+        print(json.dumps({
+            "backend": backend,
+            "seconds": round(seconds, 2),
+            "env": {
+                "cpu_pct": None if env.cpu_pct is None else round(env.cpu_pct, 1),
+                "mem_free_mb": env.mem_free_mb,
+                "mem_total_mb": env.mem_total_mb,
+                "commit_used_mb": env.commit_used_mb,
+                "tier": env.tier,
+                "trusted": env.trusted(),
+                "asr_budget": env.asr_budget(BUDGET["ms_asr"]),
+            },
+            **stats,
+        }, ensure_ascii=False, indent=2))
         return 0
 
     print()
     print(f"{'stage':<12}{'p50':>7}{'p95':>7}{'p99':>7}{'budget':>9}   verdict")
     print("-" * 52)
-    print(fmt_row("asr", stats["asr"], BUDGET["ms_asr"]))
+    asr_budget = env.asr_budget(BUDGET["ms_asr"])
+    untrusted = "  (不可信)" if not env.trusted() else ""
+    print(fmt_row("asr", stats["asr"], asr_budget, untrusted))
     print(fmt_row("post", stats["post"], BUDGET["ms_post"]))
     print(fmt_row("inject", stats["inject"], BUDGET["ms_inject"] if args.inject else None))
-    print(fmt_row("e2e", stats["e2e"], BUDGET["e2e_ms"]))
+    print(fmt_row("e2e", stats["e2e"], BUDGET["e2e_ms"], untrusted))
     print()
     print(f"[bench] e2e mean={stats['e2e']['mean']}ms  (PTT 目标 P50≤{BUDGET['e2e_ptt']}ms)")
+    print(f"[bench] 环境快照：{env.line()} · 档位={env.tier}")
     return 0
 
 

@@ -10,10 +10,10 @@ PyInstaller 打包交付。Rust 版推迟（决策见 `docs/00-process/plan.md` 
 # 全部命令在 spike/ 下执行（uv 管理环境，Python 3.11，镜像已配清华源）
 cd spike
 uv sync                                  # 首次/依赖变更后
-uv run pytest                            # 单测（236 个，约 25s；ptt 时序用例占 17s）
+uv run pytest                            # 单测（244 个，约 25s；ptt 时序用例占 17s）
 uv run python tools/build_ext.py         # 编译 Rust 扩展 voiceime_rs（PyO3）
 uv run python run_spike.py --help        # 手动跑一次
-uv run python bench.py --n 20            # 输出各阶段 P50/P95
+uv run python bench.py --n 20            # 输出各阶段 P50/P95（自动判环境档位）
 uv run python quality_check.py --wav-dir fixtures/quality   # 复算 CER
 uv run python ptt_selftest.py            # PTT 时序自测（需 Medium 完整性）
 uv run python run_spike.py --web         # 打开 Web 主界面（五页）

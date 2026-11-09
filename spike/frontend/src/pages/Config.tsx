@@ -133,11 +133,11 @@ export function ConfigPage({
               onValueChange={(v) => patch({ hotkey: v })}
             />
           </Row>
-          <Row title="触发模式" desc="VAD 免按键为实验特性，默认 PTT">
+          <Row title="录音段切分" desc="对按住说话的录音做 VAD 双阈值切分与无效段过滤；仍需按住热键，不是免按键">
             <Segmented
               options={[
-                { label: "PTT 按住说", value: "ptt" },
-                { label: "VAD 免按键", value: "vad" },
+                { label: "关闭", value: "ptt" },
+                { label: "开启", value: "vad" },
               ]}
               value={s.use_vad ? "vad" : "ptt"}
               onChange={(v) => patch({ use_vad: v === "vad" })}

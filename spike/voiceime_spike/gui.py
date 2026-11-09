@@ -891,11 +891,11 @@ class ConfigPage(Page):
         )
         self.row(body, "触发热键", "全局键，左右两侧可分别指定", self.hotkey)
         self.mode = ui.Segmented(
-            body, [("PTT 按住说", "ptt"), ("VAD 免按键", "vad")],
+            body, [("关闭", "ptt"), ("开启", "vad")],
             value="vad" if self.app.settings.use_vad else "ptt",
             command=lambda v: None, bg=ui.CARD, size=8, height=26,
         )
-        self.row(body, "触发模式", "VAD 免按键为实验特性，默认 PTT", self.mode)
+        self.row(body, "录音段切分", "对按住说话的录音做 VAD 双阈值切分；仍需按住热键", self.mode)
 
         # 识别与纠错
         card = self.card()

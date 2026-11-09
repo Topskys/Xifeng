@@ -34,7 +34,7 @@ class Settings:
     final_punct: str = "keep"            # keep | strip
     space_between_cjk_latin: bool = True
     trim_silence: bool = True            # 裁首尾静音
-    use_vad: bool = False                # 能量 VAD（实验）
+    use_vad: bool = False                # 录音段内 Silero 双阈值切分（非免按键）
     hotkey: str = hotkey.DEFAULT_KEY
     model_dir: str = ""                  # 空 = 用 paths.models_dir()
     threads: int = asr.DEFAULT_THREADS   # ASR 推理线程数

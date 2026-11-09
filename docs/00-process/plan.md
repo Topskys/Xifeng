@@ -43,7 +43,7 @@ Spec: `spec.md`（2026-10-28）
 | 0.15 规则层（术语表 + 复读） | `spike/voiceime_spike/glossary.py` | CER 从 3.3% → 0.0%（5/5 全对），无误伤 | ✅ 反例来自 `tests/test_glossary.py`（**0.23 起已下线**：`glossary.py`/`terms` 表/相关测试全部移除，纠错改由本地模型承担） |
 | 0.16 首尾静音裁剪 | `spike/voiceime_spike/vad.py` | 长静音不再触发幻觉，ASR 只跑语音段 | ✅ 15.6s（含 11s 静音）→ 裁 12.1s，ASR 1191→283ms；带裁剪重跑 CER **0.0%（5/5）** |
 | 0.17 托盘 + 开机自启 + 无窗口 | `voiceime_spike/{tray,autostart,applog}.py` | 常驻托盘、菜单开窗口/自启/退出、`--times 0` 无限 PTT | ✅ 冻结 exe 实测：控制台隐藏（`hwnd=0`）、日志落 `%LOCALAPPDATA%\VoiceIME\voiceime.log`、`--autostart on/off` 写入/删除 HKCU Run |
-| 0.18 GUI（M3） | `voiceime_spike/gui.py` | 常驻托盘另起进程开窗口；四页：统计 / 模型 / 配置 / 历史（术语表并入配置页）。统计页有 P50/P95、输入字数、识别次数、超时次数（e2e>5s）与运行状态（CPU/内存/GPU占用/推理线程/当前模型）；历史页有三级对照（原文→清理→纠错）与“已纠错/全部”筛选；配置页有热键、触发模式、语气词清理、注入方式、句末标点、中英文间距、首尾静音裁剪、模型下载源、ASR 推理线程、开机自启、本地数据目录 | ✅ tkinter 独立进程（`--gui --tab ...`）；冻结 exe 读真实库截图验证（2026-10-29） |
+| 0.18 GUI（M3） | `voiceime_spike/gui.py` | 常驻托盘另起进程开窗口；四页：统计 / 模型 / 配置 / 历史（术语表并入配置页）。统计页有 P50/P95、输入字数、识别次数、超时次数（e2e>5s）与运行状态（CPU/内存/GPU占用/推理线程/当前模型）；历史页有三级对照（原文→清理→纠错）与“已纠错/全部”筛选；配置页有热键、录音段切分（原「触发模式」，实际是在按住说话的录音段内做 VAD 切分，非免按键）、语气词清理、注入方式、句末标点、中英文间距、首尾静音裁剪、模型下载源、ASR 推理线程、开机自启、本地数据目录 | ✅ tkinter 独立进程（`--gui --tab ...`）；冻结 exe 读真实库截图验证（2026-10-29） |
 | 0.19 剪贴板兜底注入 | `voiceime_spike/inject.py` | 不吃 `WM_CHAR` 的应用也能出字；剪贴板必须还回去 | ✅ `--inject auto|unicode|clipboard`；跨进程 WinForms `Edit` 实测：粘贴落地、探针识别、剪贴板恢复原内容（2026-10-29） |
 | 0.20 深/浅主题 + UI 修复批次 | `voiceime_spike/{ui,gui}.py`、`store.py` v3 | 双主题保存即生效；历史页带数据可渲染 | ✅ 设计令牌收进 `ui.Theme`（dark/light），`App.apply_theme` 原地重建 + DWM 标题栏；修复：`Page.row` 控件 z 序（G29A）、`self.dl/threads` 未挂、`Input` 占位符污染 var（G29C）、模型页 refresh 累积、history 缺 `fixes` 列（store v3 迁移）；视觉回归工具 `spike/ui_shots.py`（G30），临时产物进 `<仓库根>/temp/`（2026-10-30） |
 | 0.21 Web GUI（vite+react+ts+shadcn/tailwind） | `spike/frontend/`、`voiceime_spike/webgui.py`、`run_spike.py --web` | 五页 × 双主题截图自检通过 | ✅ 宿主 = 标准库 HTTP（仅 127.0.0.1:8642）+ Edge `--app` 窗口；pywebview 方案废弃（pythonnet 在本机加载失败，见 G31）；shadcn/ui 官方 CLI（new-york/zinc）+ 自定义 zinc 令牌；CDP 截图工具 `spike/cdp_shot.py`/`cdp_ask.py`（G31）；`build.py` 自动把 `frontend/dist` 复制为 `<exe 同级>/frontend`；五页（统计/模型/配置/历史/关于），统计页含结果分布/ASR 延迟/近 7 天趋势，主题经 `theme-color` meta 同步 Edge 标题栏（2026-10-30） |
@@ -74,9 +74,11 @@ Spec 依据：`spec.md` §9 M1 = "VAD 双阈值切分 + 无效段过滤 + 段重
 | 6 延迟登记 | `latency-budget.md` §3 + `Trace.ms_vad` | 前向 1.2ms/窗（4.6s≈170–400ms） | ✅ |
 
 **结论（2026-10-30）**：M1 的机制层（双阈值切分/无效段过滤/段重组/回退）完成并单测；
-质量门槛显示 PTT 路径不应切换到 Silero（能量裁剪 0.0% 不可退化），Silero 供后续
-"VAD 免按键"模式（spec §9 M1 的另一半，尚未开工）。bench 当日数字无效（机器 62% 后台
-负载，ASR 全局 3–4× 变慢，与代码无关；热路径零改动），空闲时复测。
+质量门槛显示 PTT 路径不应切换到 Silero（能量裁剪 0.0% 不可退化），Silero 目前只用于
+"录音段内切分"（配置页「录音段切分」，默认关）。真正的免按键连续监听 **未实现**——托盘
+主循环仍阻塞在 `record_ptt` 上；且它与 AGENTS.md「不录音时禁止占用麦克风」冲突，需先
+明确例外再开工。bench 当日数字无效（机器 62% 后台负载，ASR 全局 3–4× 变慢，与代码无关；
+热路径零改动），空闲时复测。
 
 **风险**：Python 侧延迟不代表 Rust 侧；spike 数字只用于判断"模型是否可用"，不作为最终 SLO 依据。
 

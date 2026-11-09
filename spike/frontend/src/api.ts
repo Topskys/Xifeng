@@ -1,4 +1,10 @@
-/* Python 桥：全部走本地 HTTP（127.0.0.1），数据不出本机。 */
+/* Python 桥：Tauri 环境走 IPC（py_call），浏览器环境走本地 HTTP（127.0.0.1），数据不出本机。
+ *
+ * 传输层在模块加载时定一次，api 的方法签名/返回值不变，页面组件零改动：
+ *   - 有 window.__TAURI__（或 window.__TAURI_INTERNALS__）→ core.invoke("py_call", { method, params })
+ *   - 否则 → fetch(path)，与旧实现完全一致
+ * 映射关系见 docs/03-core-concepts/ipc-contract.md 的方法表。
+ */
 
 export interface Settings {
   inject_strategy: string
@@ -95,43 +101,127 @@ export interface Bootstrap {
   autostart: boolean
 }
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path)
+/* ---------- 传输层 ---------- */
+
+/** 当前生效的传输通道，调试时 `import { transport } from "@/api"` 即可确认。 */
+export type Transport = "tauri" | "http"
+
+type InvokeFn = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>
+
+declare global {
+  interface Window {
+    /** Tauri v2 开启 `app.withGlobalTauri` 后注入；故意不装 @tauri-apps/api，只用全局对象。 */
+    __TAURI__?: { core?: { invoke?: InvokeFn } }
+    /** Tauri v2 始终注入的内部桥；未开 withGlobalTauri 时只有它可用。 */
+    __TAURI_INTERNALS__?: { invoke?: InvokeFn }
+  }
+}
+
+function resolveInvoke(): InvokeFn | undefined {
+  if (typeof window === "undefined") return undefined
+  const viaGlobal = window.__TAURI__?.core?.invoke
+  if (typeof viaGlobal === "function") return viaGlobal
+  const viaInternals = window.__TAURI_INTERNALS__?.invoke
+  if (typeof viaInternals === "function") return viaInternals
+  return undefined
+}
+
+// 模块加载时定值：运行期切换环境（浏览器 ↔ Tauri）本来就要重新加载页面。
+const invoke = resolveInvoke()
+export const transport: Transport = invoke ? "tauri" : "http"
+
+type ApiMethod =
+  | "bootstrap"
+  | "stats"
+  | "history"
+  | "history_delete"
+  | "settings_save"
+  | "settings_reset"
+  | "theme"
+  | "models_use"
+  | "models_find"
+  | "autostart"
+  | "prune"
+  | "open"
+  | "check_update"
+
+/** HTTP path ↔ IPC method 对照表，与 webgui.py 的 Api 方法一一对应。 */
+const ROUTES: Record<string, { method: ApiMethod; verb: "GET" | "POST" }> = {
+  "/api/bootstrap": { method: "bootstrap", verb: "GET" },
+  "/api/stats": { method: "stats", verb: "GET" },
+  "/api/history": { method: "history", verb: "GET" },
+  "/api/history/delete": { method: "history_delete", verb: "POST" },
+  "/api/settings/save": { method: "settings_save", verb: "POST" },
+  "/api/settings/reset": { method: "settings_reset", verb: "POST" },
+  "/api/theme": { method: "theme", verb: "POST" },
+  "/api/models/use": { method: "models_use", verb: "POST" },
+  "/api/models/find": { method: "models_find", verb: "POST" },
+  "/api/autostart": { method: "autostart", verb: "POST" },
+  "/api/prune": { method: "prune", verb: "POST" },
+  "/api/open": { method: "open", verb: "POST" },
+  "/api/check_update": { method: "check_update", verb: "POST" },
+}
+
+function queryString(params: Record<string, unknown>): string {
+  return Object.entries(params)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
+    .join("&")
+}
+
+async function httpCall<T>(path: string, verb: "GET" | "POST", params: Record<string, unknown>): Promise<T> {
+  const query = queryString(params)
+  // body 判空用 params 而非 query：空 patch 仍发 "{}"，与旧实现逐字节一致
+  const hasBody = Object.keys(params).length > 0
+  const res =
+    verb === "GET"
+      ? await fetch(query ? `${path}?${query}` : path)
+      : await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: hasBody ? JSON.stringify(params) : undefined,
+        })
   if (!res.ok) throw new Error((await res.json()).error ?? res.statusText)
   return res.json()
 }
 
-async function post<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error((await res.json()).error ?? res.statusText)
-  return res.json()
+/** 统一两条通道的错误形态：IPC 侧 {ok:false,error} 也抛 Error，页面 catch 逻辑不变。 */
+function unwrapIpc<T>(value: unknown): T {
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>
+    if (record.ok === false) {
+      throw new Error(typeof record.error === "string" ? record.error : "IPC 调用失败")
+    }
+    // Tauri 侧若原样透传 {"id","ok","result"} 信封，这里拆掉一层
+    if (record.ok === true && "result" in record) return record.result as T
+  }
+  return value as T
+}
+
+async function call<T>(path: string, params: Record<string, unknown> = {}): Promise<T> {
+  const route = ROUTES[path]
+  if (!route) throw new Error(`未登记的端点：${path}`)
+  if (invoke) return unwrapIpc<T>(await invoke("py_call", { method: route.method, params }))
+  return httpCall<T>(path, route.verb, params)
 }
 
 export const api = {
-  bootstrap: () => get<Bootstrap>("/api/bootstrap"),
-  stats: (period: string) => get<StatsPayload>(`/api/stats?period=${period}`),
+  bootstrap: () => call<Bootstrap>("/api/bootstrap"),
+  stats: (period: string) => call<StatsPayload>("/api/stats", { period }),
   history: (period: string, offset: number, limit: number) =>
-    get<{ rows: HistoryRow[]; has_more: boolean }>(
-      `/api/history?period=${period}&offset=${offset}&limit=${limit}`,
-    ),
-  deleteHistory: (id: number) => post<{ ok: boolean }>("/api/history/delete", { id }),
-  saveSettings: (patch: Partial<Settings>) => post<Settings>("/api/settings/save", patch),
-  resetSettings: () => post<Settings>("/api/settings/reset"),
-  setTheme: (theme: string) => post<Settings>("/api/theme", { theme }),
-  modelsFind: (name: string, files: string[]) =>
-    post<{ matches: string[] }>("/api/models/find", { name, files }),
-    useModel: (path: string) => post<{ current: string; list: ModelInfo[] }>("/api/models/use", { path }),
+    call<{ rows: HistoryRow[]; has_more: boolean }>("/api/history", { period, offset, limit }),
+  deleteHistory: (id: number) => call<{ ok: boolean }>("/api/history/delete", { id }),
+  saveSettings: (patch: Partial<Settings>) => call<Settings>("/api/settings/save", patch),
+  resetSettings: () => call<Settings>("/api/settings/reset"),
+  setTheme: (theme: string) => call<Settings>("/api/theme", { theme }),
+  modelsFind: (name: string, files: string[]) => call<{ matches: string[] }>("/api/models/find", { name, files }),
+  useModel: (path: string) => call<{ current: string; list: ModelInfo[] }>("/api/models/use", { path }),
   toggleAutostart: (enabled: boolean) =>
-    post<{ ok: boolean; error: string }>("/api/autostart", { enabled }),
-  prune: () => post<{ removed: number }>("/api/prune"),
-  open: (path: string) => post<{ ok: boolean }>("/api/open", { path }),
-  checkUpdate: () => post<{ latest: string; current: string; update: boolean } | { error: string }>(
-    "/api/check_update",
-  ),
+    call<{ ok: boolean; error: string }>("/api/autostart", { enabled }),
+  prune: () => call<{ removed: number }>("/api/prune"),
+  open: (path: string) => call<{ ok: boolean }>("/api/open", { path }),
+  checkUpdate: () =>
+    call<{ latest: string; current: string; update: boolean } | { error: string }>("/api/check_update"),
 }
 
 export const HOTKEY_LABEL: Record<string, string> = {

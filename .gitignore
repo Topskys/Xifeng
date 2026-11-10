@@ -29,6 +29,9 @@ target/
 spike/tmp*/
 .shots/
 *.pyd
+# Tauri 内嵌的 PyInstaller sidecar（build_core.py 产出，约 100MB+，绝不入库；
+# DIST 目录不需要重建也保留模型/SQLite：G24/G25）
+spike/frontend/src-tauri/resources/
 
 # SQLite 用户数据（源码 + Low 进程回退目录，见 docs/03-core-concepts/storage.md）
 .data/

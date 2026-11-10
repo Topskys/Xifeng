@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -202,8 +202,18 @@ impl PythonBridge {
         let dir = core_dir();
         let db = env::var("VOICEIME_DB").ok().filter(|s| !s.trim().is_empty());
 
+        // sidecar（PyInstaller 产物）自己就是入口，不能再传脚本名；
+        // 解释器模式才需要 `run_spike.py`。
+        let is_sidecar = Path::new(&python)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case("VoiceIME-Core.exe"));
+
         let mut cmd = Command::new(&python);
-        cmd.arg("run_spike.py").arg("--ipc");
+        if !is_sidecar {
+            cmd.arg("run_spike.py");
+        }
+        cmd.arg("--ipc");
         if let Some(db) = db.as_deref() {
             cmd.arg("--db").arg(db);
         }
@@ -528,11 +538,31 @@ fn spawn_stderr_reader(stderr: ChildStderr) {
         .expect("无法创建 py-stderr 线程");
 }
 
-/// Python 解释器路径：`VOICEIME_PYTHON` 优先，默认 `python`。
+/// Python 解释器路径。
+///
+/// 解析顺序：
+/// 1. `VOICEIME_PYTHON` 环境变量（开发时指 venv 的解释器）
+/// 2. 打包态的 sidecar：`<exe 同级>/core/VoiceIME-Core.exe`（`packaging/build_core.py` 产出，
+///    自带解释器与全部依赖，不需要用户机器上装 Python）
+/// 3. 兜底 `python`（依赖 PATH，仅供开发/排障）
 fn python_exe() -> OsString {
-    env::var_os("VOICEIME_PYTHON")
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| OsString::from("python"))
+    if let Some(v) = env::var_os("VOICEIME_PYTHON").filter(|v| !v.is_empty()) {
+        return v;
+    }
+    if let Ok(exe) = env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            // Tauri 的 resources 在 Windows 上落在 exe 同级（安装目录）
+            for cand in [
+                dir.join("core").join("VoiceIME-Core.exe"),
+                dir.join("resources").join("core").join("VoiceIME-Core.exe"),
+            ] {
+                if cand.is_file() {
+                    return cand.into_os_string();
+                }
+            }
+        }
+    }
+    OsString::from("python")
 }
 
 /// Python 核心所在目录（`run_spike.py` 的父目录）。

@@ -10,7 +10,7 @@ PyInstaller 打包交付。Rust 版推迟（决策见 `docs/00-process/plan.md` 
 # 全部命令在 spike/ 下执行（uv 管理环境，Python 3.11，镜像已配清华源）
 cd spike
 uv sync                                  # 首次/依赖变更后
-uv run pytest                            # 单测（264 个，约 25s；ptt 时序用例占 17s）
+uv run pytest                            # 单测（286 个，约 25s；ptt 时序用例占 17s）
 uv run python tools/build_ext.py --release # 编译 Rust 扩展（debug 比 numpy 慢，默认用 release）
 uv run python run_spike.py --help        # 手动跑一次
 uv run python bench.py --n 20            # 输出各阶段 P50/P95（自动判环境档位）
@@ -21,6 +21,11 @@ uv run python run_spike.py --tray        # 托盘常驻（默认按需开麦）
 
 # 打包（MUST 用仓库外的 Medium 解释器，见 docs/02-guides/packaging.md）
 %TEMP%\vi-venv\Scripts\python.exe packaging\build.py
+
+# Tauri 内嵌核心 sidecar（见 docs/02-guides/packaging.md「sidecar」节）
+uv run python packaging/build_core.py    # 产出 src-tauri/resources/core/（不进仓库）
+uv run python tools/core_smoke.py        # 验证 sidecar 能独立跑 IPC（ready→bootstrap→shutdown）
+uv run python tools/ask_boot.py 9334     # 从 Tauri 窗口经 CDP 验证 py_call（需先起壳+调试端口）
 
 # Rust（crates/，上机位置见 docs/02-guides/rust-env.md）
 cargo test -p ime-post                   # 后处理规则单测（21 个）

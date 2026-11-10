@@ -48,6 +48,31 @@ set PYTHONPATH=D:\project\workspace\voice-ime\spike;D:\project\workspace\voice-i
 > `models\` 会被删掉（构建结束会打印提示）。用户数据不在这里 —— 库默认在
 > `%LOCALAPPDATA%\VoiceIME\voiceime.db`，重建不会丢（见 G25）。
 
+## sidecar：Tauri 内嵌核心（build_core.py）
+
+`packaging/build_core.py` 把 Python 核心打成 **onedir sidecar 供 Tauri 壳拉起**
+（与 `build.py` 的"独立可双击产品"不同，它不带 GUI，只跑 `--ipc`）：
+
+```bash
+cd spike
+uv run python packaging/build_core.py          # 产出 src-tauri/resources/core/
+uv run python packaging/build_core.py --clean  # 先清掉旧产物再打
+uv run python tools/core_smoke.py              # 独立冒烟：ready→bootstrap→stats→shutdown
+```
+
+要点：
+
+- 产物落在 `spike/frontend/src-tauri/resources/core/`，`tauri.conf.json` 的
+  `resources` 把 `resources/core/` 映射到安装目录 `core/`，约 100MB+，
+  **已在 `.gitignore`，绝不入库**（G24 同理）。
+- `tauri` 的 `py.rs` 按 `is_sidecar` 判断：进程名是 `VoiceIME-Core.exe` 时直接执行、
+  不再传 `run_spike.py`；解释器模式才传脚本名。数据库可用 `--db` 覆盖。
+- **冒烟 MUST 在 `tauri build` 之前跑**（G36 就是冒烟发现的：3 秒内报
+  `ModuleNotFoundError: tkinter`，而打包本身是成功的）。
+- 端到端验证（壳 → sidecar → IPC）用 `tools/ask_boot.py <port>`：窗口开调试端口后
+  经 CDP 调 `py_call("bootstrap")`，返回 `OK {...version...}` 即通。
+- 实测：sidecar 启动到 ready 约 403ms，IPC 冒烟退出码 0。
+
 ## 模型放哪
 
 按优先级（`voiceime_spike/paths.py`）：

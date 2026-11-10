@@ -769,3 +769,23 @@ site-packages —— 与 `maturin develop` 等价，但绕开它的临时目录�
 
 
 
+
+## G36 PyInstaller 排除「用不到」的模块，把整个核心打成 ImportError
+
+**症状**：`build_core.py` 打包成功，但产出的核心一启动就死：
+
+```
+ModuleNotFoundError: No module named 'tkinter'
+[PYI-39324:ERROR] Failed to execute script 'run_spike'
+```
+
+**根因**：为了减小体积加了 `--exclude-module tkinter`（IPC 模式确实不弹浮窗），
+但 `voiceime_spike/popup.py` 在**模块顶层**就 `import tkinter`，而 `run_spike.py`
+无条件 `import popup`。于是不管走哪条路径，导入链都会踩到它。
+
+**教训**：`--exclude-module` 只对「确认没有任何顶层 import 链能到达」的模块安全。
+判断方法不是看当前模式用不用得到，而是看 `python -c "import run_spike"` 会不会失败。
+
+**验证**：`uv run python tools/core_smoke.py` 直接跑打包产物，3 秒内就能发现。
+
+体积代价：tkinter 约 7.5MB（118.8MB vs 111.2MB），完全不值得为它冒险。

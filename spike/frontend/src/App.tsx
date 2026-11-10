@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import { api, type Bootstrap } from "@/api"
 import { cn } from "@/lib/utils"
+import { TitleBar } from "@/components/title-bar"
 import { AboutPage } from "@/pages/About"
 import { ConfigPage } from "@/pages/Config"
 import { ModelsPage } from "@/pages/Models"
@@ -88,16 +89,21 @@ export default function App() {
 
   if (!boot) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        正在连接本地服务…
+      <div className="flex h-full flex-col">
+        <TitleBar />
+        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+          正在连接本地服务…
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-full">
-      {/* 侧边栏 */}
-      <aside className="flex w-48 shrink-0 flex-col border-r border-border bg-sidebar">
+    <div className="flex h-full flex-col">
+      <TitleBar />
+      <div className="flex min-h-0 flex-1">
+        {/* 侧边栏 */}
+        <aside className="flex w-48 shrink-0 flex-col border-r border-border bg-sidebar">
         <div className="flex items-center gap-2.5 px-5 pb-4 pt-6">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
             <Mic className="size-4 text-primary-foreground" />
@@ -150,6 +156,7 @@ export default function App() {
         )}
         {page === "about" && <AboutPage boot={boot} />}
       </main>
+      </div>
 
       {/* toast */}
       {toast && (

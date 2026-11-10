@@ -56,10 +56,19 @@ CLI 版本：`@tauri-apps/cli 2.12.4`（**pnpm 装，不要用 npm**，仓库已
 |---|---|---|
 | WebView2 运行时 | 157.0.4341.42 | Win10/11 一般自带；Win10 老版本需装 Evergreen |
 | MSVC 生成工具 | VS 2022 BuildTools | 已在 `D:\env\vs\BuildTools` |
-| NSIS | **未装** | `tauri build` 打安装包时才需要；开发用 `tauri:dev` 不需要 |
+| NSIS | **v3.11 已装**（便携版 `D:\env\NSIS`） | `tauri build` 打安装包用；`tools\dev-env.cmd` 会把它加进 PATH |
 | Rust toolchain | 1.99.1 stable-msvc | `rust-toolchain.toml` 已锁定 |
 
-需要 NSIS 时：`winget install NSIS.NSIS`，或按 `docs/02-guides/rust-env.md` 的"坑"一节手工解压到 `D:\env\NSIS`。
+NSIS 不是 Node 包，**装不了** `pnpm add`。它是原生 `makensis.exe`，三条路：
+
+1. **已装，直接用**（本机现状）：便携版在 `D:\env\NSIS`，`Bin\makensis.exe` + 同目录
+   `zlib1.dll`。`tools\dev-env.cmd` 会自动把它加进 PATH，所以 `pnpm tauri:build` 能过。
+2. `winget install NSIS.NSIS`（本机实测卡住无响应，不推荐）
+3. 让 Tauri 自己下载：去掉 `--no-bundle` 跑一次 `tauri build`，CLI 会拉到
+   `%LOCALAPPDATA%\tauri\NSIS`。
+
+⚠ `makensis.exe` **不能单独拷出来**：它依赖同目录的 `zlib1.dll`，拷到别处直接
+`0xC0000135`。所以别复制单文件，把整个 `Bin` 目录放进 PATH。
 
 ## 与 PyInstaller 的关系
 

@@ -37,12 +37,54 @@ async fn py_call(
         .map_err(|e| format!("py_call 任务异常中止：{e}"))?
 }
 
+/// 无边框窗口的拖动：由前端标题栏 mousedown 触发。
+///
+/// 为什么不用 `data-tauri-drag-region`：它靠 Tauri 注入的脚本钩子，而本项目
+/// 走自定义协议 + capabilities，实测在非按钮的空白处不总生效。显式命令可控。
+#[tauri::command]
+fn start_dragging(window: tauri::Window) -> Result<(), String> {
+    window.start_dragging().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn minimize(window: tauri::Window) -> Result<(), String> {
+    window.minimize().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn toggle_maximize(window: tauri::Window) -> Result<bool, String> {
+    let maxed = window.is_maximized().map_err(|e| e.to_string())?;
+    if maxed {
+        window.unmaximize().map_err(|e| e.to_string())?;
+    } else {
+        window.maximize().map_err(|e| e.to_string())?;
+    }
+    Ok(!maxed)
+}
+
+#[tauri::command]
+fn is_maximized(window: tauri::Window) -> Result<bool, String> {
+    window.is_maximized().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn close(window: tauri::Window) -> Result<(), String> {
+    window.close().map_err(|e| e.to_string())
+}
+
 fn main() {
     let bridge = Arc::new(PythonBridge::new());
 
     let app = tauri::Builder::default()
         .manage(Arc::clone(&bridge))
-        .invoke_handler(tauri::generate_handler![py_call])
+        .invoke_handler(tauri::generate_handler![
+            py_call,
+            start_dragging,
+            minimize,
+            toggle_maximize,
+            is_maximized,
+            close
+        ])
         .setup({
             let bridge = Arc::clone(&bridge);
             move |app| {

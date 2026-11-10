@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "VoiceIME",
         "width": 1100,
         "height": 760,
@@ -19,7 +20,9 @@
         "minHeight": 600,
         "resizable": true,
         "center": true,
-        "decorations": true,
+        "decorations": false,
+        "transparent": false,
+        "shadow": true,
         "theme": "Dark"
       }
     ],

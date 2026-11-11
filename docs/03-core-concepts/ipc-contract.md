@@ -57,7 +57,7 @@
 
 ## 生命周期
 
-1. Tauri 启动 → spawn Python → 等第一条 `{"event":"ready"}`（超时 10s 报错）
+1. Tauri 启动 → spawn Python → 等第一条 `{"event":"ready"}`（超时 30s 报错；2026-11-11 从 10s 放宽——统一根有模型后，冷盘首启要把 228MB ASR 模型读进内存）
 2. 前端就绪 → 发 `bootstrap` 拿全量状态
 3. Tauri 退出 → 先发 `shutdown`，再 `child.kill()` 兜底（防僵尸进程）
 4. Python 异常退出 → Tauri 转发 `{"event":"exit","result":{"code":N}}`，前端显示横幅

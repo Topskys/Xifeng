@@ -10,7 +10,7 @@
 //!
 //! 三条硬约束：
 //! 1. stdout 是协议专用通道，只按行解析 JSON；非 JSON 行只记日志、不让进程崩。
-//! 2. 等 `{"event":"ready"}` 最多 10 秒，超时即判启动失败。
+//! 2. 等 `{"event":"ready"}` 最多 [`READY_TIMEOUT`]（30s，冷盘首启加载模型要时间），超时即判启动失败。
 //! 3. 退出 MUST 先发 `shutdown`，给 Python 自净的时间，再 `kill()` 兜底并 `wait()` 回收，
 //!    不留僵尸（见 [`PythonBridge::shutdown`]）。
 
@@ -30,8 +30,13 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
-/// 等 Python 核 `ready` 通知的上限（契约规定 10s）。
-pub const READY_TIMEOUT: Duration = Duration::from_secs(10);
+/// 等 Python 核 `ready` 通知的上限。
+///
+/// 契约原定 10s；但 D15 后统一根有模型，核心启动要先把 ASR 模型读进内存
+/// （228MB，冷盘首启实测可超 10s），超时会被 `kill_and_reap()` 杀掉且
+/// `started` 已钉死不重试 → 首启必挂。放宽到 30s 覆盖冷盘首启，
+/// 正常热启动 ready 仍在 ~4s 内，不受影响。
+pub const READY_TIMEOUT: Duration = Duration::from_secs(30);
 /// 单次 RPC 的上限。`check_update` 之类会走网络，留够余量。
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// 退出时给 `shutdown` 方法的应答时间。
@@ -190,7 +195,7 @@ impl PythonBridge {
 
     /// 拉起 Python 核并等它报 `ready`。同步阻塞，最多 [`READY_TIMEOUT`]。
     ///
-    /// 失败（python 不在 PATH、脚本找不到、10s 超时）时会把状态钉在 `Failed`，
+    /// 失败（python 不在 PATH、脚本找不到、ready 超时）时会把状态钉在 `Failed`，
     /// 之后的 `py_call` 直接返回这条错误，前端据此显示横幅。
     pub fn start(&self, app: AppHandle) -> Result<(), String> {
         if self.started.swap(true, Ordering::SeqCst) {

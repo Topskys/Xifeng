@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import { api, type Bootstrap } from "@/api"
 import { cn } from "@/lib/utils"
-import { TitleBar } from "@/components/title-bar"
+import { WindowTopBar } from "@/components/title-bar"
 import { AboutPage } from "@/pages/About"
 import { ConfigPage } from "@/pages/Config"
 import { ModelsPage } from "@/pages/Models"
@@ -90,7 +90,7 @@ export default function App() {
   if (!boot) {
     return (
       <div className="flex h-full flex-col">
-        <TitleBar />
+        <WindowTopBar />
         <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
           正在连接本地服务…
         </div>
@@ -100,7 +100,7 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col">
-      <TitleBar />
+      <WindowTopBar />
       <div className="flex min-h-0 flex-1">
         {/* 侧边栏 */}
         <aside className="flex w-48 shrink-0 flex-col border-r border-border bg-sidebar">

@@ -789,3 +789,59 @@ ModuleNotFoundError: No module named 'tkinter'
 **验证**：`uv run python tools/core_smoke.py` 直接跑打包产物，3 秒内就能发现。
 
 体积代价：tkinter 约 7.5MB（118.8MB vs 111.2MB），完全不值得为它冒险。
+
+## G37 `tauri build` 报「拒绝访问」：壳进程自己锁着自己的产物
+
+**症状**：重新构建时报
+
+```
+error: failed to remove file `...\target\release\voiceime-tauri.exe`
+Caused by: 拒绝访问。 (os error 5)
+```
+
+**根因**：上一轮验证时起的壳还在跑，运行中的 exe 文件被 Windows 锁住，
+cargo 无法覆盖/删除它。与「构建前停托盘进程（占 `VoiceIME.exe`）」是同一类问题——
+**产物自己锁自己**，不是权限配置坏了。
+
+**解法**：构建前先杀壳进程（Git Bash 里 `//` 是防止 MSYS 把 `/F` 当路径吞掉）：
+
+```bash
+taskkill //F //IM voiceime-tauri.exe
+taskkill //F //IM VoiceIME-Core.exe 2>/dev/null   # 壳拉起的核心也要一起收
+```
+
+**教训**：每次 `tauri build` / `build.py` 之前，先确认上一轮的产物进程已退出；
+找不到占用者时用 `Get-Process | Where-Object { $_.Path -like '*target*' }` 按路径查。
+
+## G38 NSIS 安装包报「Error writing temporary file」
+
+**症状**：双击 `VoiceIME_x.y.z_x64-setup.exe` 直接弹
+
+```
+NSIS Error: Error writing temporary file. Make sure your temp folder is valid.
+```
+
+注册表里 `%TEMP%` 指向正常、目录存在、C 盘空间充足——报错信息有误导性。
+
+**根因**：NSIS 安装器启动时先把自己解包到 `%TEMP%\...\$PLUGINSDIR`。
+这台机器的 `C:\Users\...\Temp` 目录 ACL 被多个沙箱 SID 污染过（G35 的旁证），
+某些启动上下文下写不进去；杀软实时拦截 NSIS 自解包 exe 也会报同样的错。
+
+**解法**（按顺序试，第 1 步通常就过）：
+
+```bat
+:: 1) 指个干净 TEMP 再装
+mkdir D:\env\tmp\nsis-install
+set TEMP=D:\env\tmp\nsis-install
+set TMP=D:\env\tmp\nsis-install
+VoiceIME_0.1.0_x64-setup.exe
+
+:: 2) 解除 Mark of the Web 后以管理员运行
+powershell -c "Unblock-File '.\VoiceIME_0.1.0_x64-setup.exe'"
+
+:: 3) 查杀软拦截记录（Windows 安全中心 → 保护历史）
+```
+
+**教训**：在这台机器上凡是「往 TEMP 解包/建临时文件」的工具
+（maturin、link.exe、NSIS 安装器）都可能踩同一个 ACL 坑，
+统一解法都是把 `TEMP`/`TMP` 指到 `D:\env\tmp`。

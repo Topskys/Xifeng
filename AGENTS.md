@@ -79,6 +79,8 @@ Python 签名 ↔ Rust 的转接。Python 侧保留纯 Python 基准实现，两
 - 不要把模型打进 onefile —— 228MB 每次启动解压；模型外置（G24）
 - 不要把纠错模型复制进 dist —— 放 `%LOCALAPPDATA%\VoiceIME\models\llm`（重建 dist 不丢，G25 同理）
 - 不要在仓库目录构建 exe —— 产物继承 Low 标签，钩子失效（G24）
+- 不要带着旧进程跑构建 —— `tauri build` 前先杀 `voiceime-tauri.exe`（它锁自己的产物，
+  os error 5，G37）；NSIS 安装包装不上先指干净 `TEMP` 再试（G38）
 - 改 VAD 阈值 / 分词规则必须跑 golden 用例，否则会静默误伤
 - 不要为了"便携"把 SQLite 放 exe 同级 —— 重建 dist 会清空（G25）
 - 不要让小模型"自由改写" —— 守卫必须拒绝删词/大改/解释性输出，宁可漏改（G32）

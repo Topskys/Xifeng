@@ -551,10 +551,17 @@ fn python_exe() -> OsString {
     }
     if let Ok(exe) = env::current_exe() {
         if let Some(dir) = exe.parent() {
-            // Tauri 的 resources 在 Windows 上落在 exe 同级（安装目录）
+            // Tauri 的 resources 在 Windows 上落在 exe 同级（安装目录）。
+            // onedir 结构是 `core/VoiceIME-Core/VoiceIME-Core.exe`（PyInstaller 的
+            // app 目录 + `_internal`），平铺候选只是历史兼容，别删。
             for cand in [
+                dir.join("core").join("VoiceIME-Core").join("VoiceIME-Core.exe"),
                 dir.join("core").join("VoiceIME-Core.exe"),
                 dir.join("resources").join("core").join("VoiceIME-Core.exe"),
+                dir.join("resources")
+                    .join("core")
+                    .join("VoiceIME-Core")
+                    .join("VoiceIME-Core.exe"),
             ] {
                 if cand.is_file() {
                     return cand.into_os_string();
@@ -582,6 +589,9 @@ fn core_dir() -> PathBuf {
             let candidates = [
                 dir.join("python"),
                 dir.join("resources").join("python"),
+                // sidecar 的 onedir：`core/VoiceIME-Core/`（build_core.py 把
+                // run_spike.py 判据放这里）
+                dir.join("core").join("VoiceIME-Core"),
                 dir.to_path_buf(),
             ];
             for cand in candidates {

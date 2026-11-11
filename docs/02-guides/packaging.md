@@ -67,6 +67,10 @@ uv run python tools/core_smoke.py              # 独立冒烟：ready→bootstra
   **已在 `.gitignore`，绝不入库**（G24 同理）。
 - `tauri` 的 `py.rs` 按 `is_sidecar` 判断：进程名是 `VoiceIME-Core.exe` 时直接执行、
   不再传 `run_spike.py`；解释器模式才传脚本名。数据库可用 `--db` 覆盖。
+  sidecar 按以下顺序找：`VOICEIME_PYTHON` 环境变量 →
+  `<exe 同级>\core\VoiceIME-Core\VoiceIME-Core.exe`（onedir）→ 平铺历史候选 → PATH `python`。
+  **布局 MUST 与 py.rs 候选一致**——onedir 是 `core\VoiceIME-Core\` 子目录（带 `_internal`），
+  曾因写成平铺导致壳找不到 sidecar、静默跌到 PATH python。
 - **冒烟 MUST 在 `tauri build` 之前跑**（G36 就是冒烟发现的：3 秒内报
   `ModuleNotFoundError: tkinter`，而打包本身是成功的）。
 - 端到端验证（壳 → sidecar → IPC）用 `tools/ask_boot.py <port>`：窗口开调试端口后

@@ -5,12 +5,13 @@
 - 本脚本打的是**只给 Tauri 壳调用的核心**（`--ipc` 模式），产物进
   `src-tauri/resources/core/`，随 `tauri build` 一起进安装包。
 
-产物结构（Tauri 打包后）：
+产物结构（Tauri 打包后，onedir 保持 PyInstaller 的 app 目录形态）：
     VoiceIME/
       voiceime-tauri.exe          ← Tauri 壳
-      core/VoiceIME-Core.exe      ← 本脚本产出（Python 解释器 + 全部依赖）
-      core/_internal/...          ← onedir 依赖
-      core/run_spike.py           ← py.rs 的 core_dir() 靠它认目录
+      core/VoiceIME-Core/         ← 本脚本产出（onedir）
+        VoiceIME-Core.exe         ← Python 解释器 + 全部依赖
+        _internal/                ← 依赖目录（必须与 exe 同级）
+        run_spike.py              ← py.rs 的 core_dir() 靠它认目录
 
 用法：
     uv run python packaging/build_core.py

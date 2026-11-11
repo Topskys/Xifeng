@@ -40,15 +40,25 @@ async function invokeWindow(cmd: string): Promise<void> {
 }
 
 /**
- * 顶部细拖拽带（参照 zcode 布局，2026-11-11）：无标题文字，只有一条
- * 可拖动/双击最大化的空带，窗口按钮固定在右端。所有页面共用，
- * 放在 `App` 顶层（内容区之上），加载态也渲染。
+ * 顶部细拖拽带（参照 zcode 布局，2026-11-11）：无标题文字，整条可拖动/
+ * 双击最大化，窗口按钮固定在右端。传入 `left` 时条带左段渲染品牌块
+ * （宽度/背景与侧栏一致），右段才是拖拽+按钮；加载态不传，整条留白。
  */
-export function WindowTopBar() {
+export function WindowTopBar({ left }: { left?: React.ReactNode }) {
   const drag = useWindowDragProps()
+  if (!left) {
+    return (
+      <div className="flex h-10 shrink-0 select-none items-center justify-end pr-2" {...drag}>
+        <WindowControls />
+      </div>
+    )
+  }
   return (
-    <div className="flex h-9 shrink-0 select-none items-center justify-end pr-2" {...drag}>
-      <WindowControls />
+    <div className="flex h-10 shrink-0 select-none" {...drag}>
+      {left}
+      <div className="flex min-w-0 flex-1 items-center justify-end pr-2">
+        <WindowControls />
+      </div>
     </div>
   )
 }

@@ -100,20 +100,26 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col">
-      <WindowTopBar />
+      <WindowTopBar
+        left={
+          /* 顶条左段：品牌块，宽度/边线/背景与侧栏一致（zcode 同款布局） */
+          <div className="flex w-48 shrink-0 items-center gap-2.5 border-r border-border bg-sidebar px-4">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary">
+              <Mic className="size-3.5 text-primary-foreground" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[13px] font-bold leading-tight">VoiceIME</div>
+              <div className="truncate text-[9px] leading-tight text-muted-foreground">
+                溪风语音输入法 · v{boot.version}
+              </div>
+            </div>
+          </div>
+        }
+      />
       <div className="flex min-h-0 flex-1">
-        {/* 侧边栏 */}
+        {/* 侧边栏（品牌块已在顶条左段） */}
         <aside className="flex w-48 shrink-0 flex-col border-r border-border bg-sidebar">
-        <div className="flex items-center gap-2.5 px-5 pb-4 pt-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <Mic className="size-4 text-primary-foreground" />
-          </div>
-          <div>
-            <div className="text-sm font-bold leading-tight">VoiceIME</div>
-            <div className="text-[10px] text-muted-foreground">溪风语音输入法 · v{boot.version}</div>
-          </div>
-        </div>
-        <nav className="flex flex-col gap-1 px-3">
+        <nav className="flex flex-col gap-1 px-3 pt-2">
           {NAV.map(({ key, label, icon: Icon }) => (
             <button
               key={key}

@@ -48,7 +48,7 @@ uv run python run_spike.py --text "呃 今天 我们 嗯 开个会，讨论一�
 ```
 
 纠错默认关，`--text` 不会调用模型。要试本地模型纠错（首次约 4s 冷启动；模型放
-`%LOCALAPPDATA%\VoiceIME\models\llm`，**不进 dist**，源码形态也可用仓库里的 `models/llm`）：
+统一根 `%LOCALAPPDATA%\VoiceIME\models\llm`，见 packaging.md 的 D15 节）：
 
 ```bash
 > uv run python run_spike.py --text "帮我把 voice i e 的 read me 提交" --correct --no-inject

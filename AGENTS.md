@@ -76,8 +76,10 @@ Python 签名 ↔ Rust 的转接。Python 侧保留纯 Python 基准实现，两
 - 不要松手立刻关流 —— 会丢最后 150–300ms，必须 `drain_ms`（G23）
 - 不要在托盘菜单里起 tkinter —— 主界面是 Web（`--web --tab`），`--gui` 只是旧版兜底
 - 不要按次加载模型 —— 模型常驻，启动 warmup 一次
-- 不要把模型打进 onefile —— 228MB 每次启动解压；模型外置（G24）
-- 不要把纠错模型复制进 dist —— 放 `%LOCALAPPDATA%\VoiceIME\models\llm`（重建 dist 不丢，G25 同理）
+- 不要把模型放进仓库 —— 统一根是 `%LOCALAPPDATA%\VoiceIME\models\{asr,vad,llm}`
+  （D15），仓库 `models/` 已移除；打包时从统一根复制进安装目录 `models/` 兜底
+- 不要把纠错模型复制进 dist —— 重建 dist 会清空（G25 同理）；打包自带模型用
+  `build_core.py`（统一根 → `resources/models/` → 安装目录）
 - 不要在仓库目录构建 exe —— 产物继承 Low 标签，钩子失效（G24）
 - 不要带着旧进程跑构建 —— `tauri build` 前先杀 `voiceime-tauri.exe`（它锁自己的产物，
   os error 5，G37）；NSIS 安装包装不上先指干净 `TEMP` 再试（G38）

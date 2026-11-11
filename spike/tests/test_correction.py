@@ -112,12 +112,14 @@ def test_llm_model_lives_in_data_dir_not_in_package(monkeypatch, tmp_path) -> No
     data = tmp_path / "data"
     app = tmp_path / "app"
     monkeypatch.delenv("IME_LLM_MODEL", raising=False)
+    monkeypatch.delenv("IME_MODELS_ROOT", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))  # 隔离真实统一根（本机有模型）
     monkeypatch.setattr(paths, "data_dir", lambda: data)
     monkeypatch.setattr(paths, "app_dir", lambda: app)
     monkeypatch.setattr(paths, "is_frozen", lambda: True)
 
     expected = data / paths.LLM_SUBDIR
-    assert paths.llm_model_path() == expected  # 缺失时也指向数据目录
+    assert paths.llm_model_path() == expected  # 缺失时也指向统一根（数据目录 models/）
 
     expected.parent.mkdir(parents=True)
     expected.write_bytes(b"gguf")
@@ -131,6 +133,8 @@ def test_llm_model_falls_back_to_exe_dir(monkeypatch, tmp_path) -> None:  # noqa
     data = tmp_path / "data"
     app = tmp_path / "app"
     monkeypatch.delenv("IME_LLM_MODEL", raising=False)
+    monkeypatch.delenv("IME_MODELS_ROOT", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))  # 隔离真实统一根（本机有模型）
     monkeypatch.setattr(paths, "data_dir", lambda: data)
     monkeypatch.setattr(paths, "app_dir", lambda: app)
     monkeypatch.setattr(paths, "is_frozen", lambda: True)

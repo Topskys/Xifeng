@@ -140,10 +140,11 @@ def build(out: Path, work: Path, with_models: bool, clean: bool) -> Path:
 
     app_dir = out / "VoiceIME"
     if with_models:
-        src = SPIKE_DIR.parent / "models" / "asr" / "sensevoice-small-int8"
+        # 模型统一根（D15）：`%LOCALAPPDATA%\VoiceIME\models`，仓库里不再放模型
+        src = paths.models_root() / "asr" / "sensevoice-small-int8"
         dst = app_dir / "models" / "asr" / "sensevoice-small-int8"
         if not src.exists():
-            raise SystemExit(f"模型目录不存在: {src}（先跑 fetch_model.py）")
+            raise SystemExit(f"模型目录不存在: {src}（模型统一放数据目录 models/ 下）")
         print(f"[build] 复制模型 {src} → {dst}")
         shutil.copytree(src, dst, dirs_exist_ok=True)
 
@@ -277,11 +278,11 @@ def report(app_dir: Path) -> None:
 
     # PyInstaller --noconfirm 会把 dist/VoiceIME 整个重建，上次放的模型会没
     if not models:
-        src = SPIKE_DIR.parent / "models" / "asr" / "sensevoice-small-int8"
+        src = paths.models_root() / "asr" / "sensevoice-small-int8"
         print("[size] 模型缺失 —— 重新构建会清空 dist，需重新复制：")
         print(f"[size]   xcopy /E /I \"{src}\" \"{app_dir / 'models' / 'asr' / 'sensevoice-small-int8'}\"")
         print("[size]   或下次加 --with-models")
-    # 纠错模型不进包：放数据目录，重建 dist/升级程序都不会碰它
+    # 纠错模型：优先统一根（models/llm），打包态也可用安装目录 models/llm 兜底
     llm = paths.llm_model_path()
     if not llm.is_file():
         print("[size] 纠错模型缺失（可选，不影响语音输入）：")

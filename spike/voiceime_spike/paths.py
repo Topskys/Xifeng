@@ -29,17 +29,74 @@ def app_dir() -> Path:
 
 
 def models_dir() -> Path:
-    """模型目录，优先级：`IME_MODELS_DIR` > 随包目录 > 源码默认。
+    """ASR 模型目录，优先级：`IME_MODELS_DIR` > 统一根 > 旧布局兼容探测。
 
-    - 打包形态：`<exe 同级>/models/asr/sensevoice-small-int8`（模型不进 exe，见 G24）
-    - 源码形态：`<仓库根>/models/asr/sensevoice-small-int8`
+    统一根（D15，2026-11-11）：`data_dir()/models`，即
+    `%LOCALAPPDATA%\\VoiceIME\\models\\asr\\sensevoice-small-int8`；
+    旧布局（打包态 exe 同级 / 源码态仓库根）**已有模型时仍优先于统一根缺失的情况**，
+    保证升级不丢模型、不强制搬 228MB。
     """
     env = os.environ.get("IME_MODELS_DIR")
     if env:
         return Path(env)
-    if is_frozen():
-        return app_dir() / MODEL_SUBDIR
-    return Path(__file__).resolve().parents[2] / MODEL_SUBDIR
+    for cand in _asr_candidates():
+        if cand.is_dir():
+            return cand
+    return _asr_candidates()[0]
+
+
+def _asr_candidates() -> tuple[Path, ...]:
+    return (
+        models_root() / MODEL_SUBDIR.relative_to("models"),
+        *(root / MODEL_SUBDIR.relative_to("models") for root in _legacy_models_roots()),
+    )
+
+
+def _legacy_models_roots() -> tuple[Path, ...]:
+    """旧布局的 models 根（统一根之前的兼容探测位）。
+
+    - 打包态：`<exe 同级>/models`（安装包自带，见 G24）
+    - 源码态：`<仓库根>/models`
+    两个位置相同时去重。
+    """
+    repo = Path(__file__).resolve().parents[2] / "models"
+    exe = app_dir() / "models"
+    return (exe, repo) if is_frozen() and exe != repo else ((repo, exe) if repo != exe else (repo,))
+
+
+def models_root() -> Path:
+    """ASR/VAD/LLM 统一的模型根目录（D15，2026-11-11）。
+
+    优先级：
+
+    1. `IME_MODELS_ROOT` 环境变量（便携 U 盘 / 自定义盘符）
+    2. `%LOCALAPPDATA%\\VoiceIME\\models`——**统一位置，唯一存放点**。
+       注意这里只做**只读探测**：Low 完整性进程（沙箱调试）写不进
+       `%LOCALAPPDATA%` 但读得到（G25 是写数据的规矩），模型只用读，
+       所以开发/调试/打包后都从这一处取，不走 `data_dir()` 的可写探针。
+    3. `data_dir()/models`——统一根的兜底位（LOCALAPPDATA 不可用时模型随数据落
+       exe 同级/`.data`，新下载的模型也落这里）。
+    """
+    env = os.environ.get("IME_MODELS_ROOT")
+    if env:
+        return Path(env)
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidate = Path(local) / "VoiceIME" / "models"
+        if _has_models(candidate):
+            return candidate
+    return data_dir() / "models"
+
+
+def _has_models(root: Path) -> bool:
+    """统一根里有没有任何一类模型（只读探测，不要求可写）。"""
+    if not root.is_dir():
+        return False
+    if (root / "asr" / "sensevoice-small-int8").is_dir():
+        return True
+    if (root / "vad" / "silero_vad.onnx").is_file():
+        return True
+    return any((root / "llm").glob("*.gguf"))
 
 
 def _usable(directory: Path) -> bool:
@@ -91,29 +148,38 @@ def db_path() -> Path:
 
 
 def vad_model_path() -> Path:
-    """Silero VAD 模型路径；`IME_VAD_MODEL` 可覆盖整个文件路径。"""
+    """Silero VAD 模型路径；`IME_VAD_MODEL` 可覆盖整个文件路径。
+
+    优先级同 ASR：统一根（`data_dir()/models/vad`）→ 旧布局（exe 同级 / 仓库根）。
+    """
     env = os.environ.get("IME_VAD_MODEL")
     if env:
         return Path(env)
-    if is_frozen():
-        return app_dir() / VAD_SUBDIR
-    return Path(__file__).resolve().parents[2] / VAD_SUBDIR
+    cands = (
+        models_root() / VAD_SUBDIR.relative_to("models"),
+        *(root / VAD_SUBDIR.relative_to("models") for root in _legacy_models_roots()),
+    )
+    for cand in cands:
+        if cand.is_file():
+            return cand
+    return cands[0]
 
 
 def llm_model_path() -> Path:
     """纠错模型（GGUF）路径；`IME_LLM_MODEL` 可覆盖整个文件路径。
 
-    模型 **不进交付包**：默认放 `%LOCALAPPDATA%\\VoiceIME\\models\\llm`，与 SQLite 同处
-    数据目录 —— 重建 dist、升级程序都不会把 491MB 再复制一遍，也不会被 dist 一起打包
-    （G24/G25 同理）。兼容旧布局：`<exe 同级>/models/llm` 里已有文件时仍然用它。
+    优先级同 ASR/VAD（D15 统一根）：`data_dir()/models/llm` → 安装包自带
+    （`<exe 同级>/models/llm`，2026-11-11 起打包时统一复制）→ 源码态仓库根。
+    模型在统一根下时重建 dist / 升级都不会被覆盖或丢失（G24/G25 同理）。
     """
     env = os.environ.get("IME_LLM_MODEL")
     if env:
         return Path(env)
-    repo = Path(__file__).resolve().parents[2] / LLM_SUBDIR
-    user = data_dir() / LLM_SUBDIR
-    candidates = (user, app_dir() / LLM_SUBDIR) if is_frozen() else (repo, user)
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return candidates[0]
+    cands = (
+        models_root() / LLM_SUBDIR.relative_to("models"),
+        *(root / LLM_SUBDIR.relative_to("models") for root in _legacy_models_roots()),
+    )
+    for cand in cands:
+        if cand.is_file():
+            return cand
+    return cands[0]

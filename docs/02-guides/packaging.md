@@ -77,45 +77,38 @@ uv run python tools/core_smoke.py              # 独立冒烟：ready→bootstra
   经 CDP 调 `py_call("bootstrap")`，返回 `OK {...version...}` 即通。
 - 实测：sidecar 启动到 ready 约 403ms，IPC 冒烟退出码 0。
 
-## 模型放哪
+## 模型放哪（D15，2026-11-11 统一根）
 
-按优先级（`voiceime_spike/paths.py`）：
+**模型只有一个存放点**：`%LOCALAPPDATA%\VoiceIME\models\{asr,vad,llm}`
+（即 `data_dir()/models`）。开发、调试、打包后的程序都从这一处读；
+仓库里**不再放模型**（原 `models/` 已移除）。`IME_MODELS_ROOT` 可整体换根
+（便携 U 盘 / 自定义盘符）。
 
-1. 环境变量 `IME_MODELS_DIR`
-2. `<exe 同级>\models\asr\sensevoice-small-int8`
-3. 源码形态：`<仓库根>\models\asr\sensevoice-small-int8`
+各模型路径（`voiceime_spike/paths.py`，解析顺序一致）：
 
-纠错模型单独解析（`paths.llm_model_path()`），**不进交付包**：
+| 模型 | 环境变量（整体覆盖） | 统一根位置 |
+|---|---|---|
+| ASR（目录） | `IME_MODELS_DIR` | `models\asr\sensevoice-small-int8` |
+| VAD | `IME_VAD_MODEL` | `models\vad\silero_vad.onnx` |
+| 纠错 LLM | `IME_LLM_MODEL` | `models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf` |
 
-1. `IME_LLM_MODEL`（完整文件路径）
-2. `%LOCALAPPDATA%\VoiceIME\models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf`（默认，与 SQLite 同目录）
-3. 兼容旧布局：`<exe 同级>\models\llm\…`
-4. 源码形态：`<仓库根>\models\llm\…`
+解析顺序（三类一致）：环境变量 → 统一根 → **旧布局兼容兜底**
+（打包态 `<exe 同级>\models\…` → 源码态 `<仓库根>\models\…`，只在已有模型时生效）。
 
-为什么放数据目录：491MB，跟着包走会让每次构建/复制多 500MB，而且重建 `dist` 就丢（G25 同理）。
-缺失不致命：配置页显示"模型缺失"并给出目录，开关禁用，按原文注入。
+注意：统一根的探测是**只读**的——Low 完整性进程（沙箱调试）写不进
+`%LOCALAPPDATA%` 但读得到（G25 是写数据的规矩），所以沙箱里也能正常加载模型。
 
-两种交付方式：
-
-```bat
-:: A. ASR 模型随包（复制到 dist，228MB）
-%TEMP%\vi-venv\Scripts\python.exe packaging\build.py --with-models
-
-:: B. 模型独立（推荐，程序 392MB 可单独更新）
-xcopy /E /I models\asr\sensevoice-small-int8 %LOCALAPPDATA%\VoiceIME-build\dist\VoiceIME\models\asr\sensevoice-small-int8
-
-:: 纠错模型（可选）：只放数据目录，不要复制进 dist
-mkdir "%LOCALAPPDATA%\VoiceIME\models\llm"
-copy models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf "%LOCALAPPDATA%\VoiceIME\models\llm\"
-```
+打包时模型统一复制（`build_core.py` / `build.py --with-models`）：模型从统一根
+复制进安装目录 `models/`，作为**就地兜底**——全新机器开箱即用；用户在统一根
+放的模型优先级更高。LLM 缺失不致命：配置页显示"模型缺失"，按原文注入。
 
 ## 数据与命令（打包后同样可用）
 
 | 数据 | 位置 |
 |---|---|
 | 历史 / 统计 / 设置 | `%LOCALAPPDATA%\VoiceIME\voiceime.db`（不可写时回退 `<exe 同级>\data`） |
-| ASR 模型 | `<exe 同级>\models\asr\sensevoice-small-int8` 或 `IME_MODELS_DIR` |
-| 纠错模型（可选） | `%LOCALAPPDATA%\VoiceIME\models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf`（不进 dist）或 `IME_LLM_MODEL` |
+| 模型（ASR/VAD/LLM 统一根，D15） | `%LOCALAPPDATA%\VoiceIME\models\{asr,vad,llm}`；打包自带 `models/` 兜底 |
+| 纠错模型（可选） | 统一根 `models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf` 或 `IME_LLM_MODEL` |
 | 托盘日志 | `%LOCALAPPDATA%\VoiceIME\voiceime.log`（只记长度/结果/trace，不记识别全文） |
 | 音频 | 从不落盘 |
 
@@ -140,9 +133,9 @@ copy models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf "%LOCALAPPDATA%\VoiceIME\model
 `llama_cpp`（纠错运行时，含 `llama.dll`/`ggml*.dll`）同样用 `--collect-all`。
 `tkinter` 仍随包（`--gui` 是旧版兜底），主界面是 Web：`build.py` 把 `frontend/dist`
 复制成 `<exe 同级>/frontend`，所以交付目录 MUST 连同 `frontend` 一起分发。
-**纠错模型既不进 exe 也不进 dist**：491MB，放 `%LOCALAPPDATA%\VoiceIME\models\llm`
-（与 SQLite 同目录，重建 dist 不丢）；缺失时配置页显示"模型缺失"并给出该目录，
-开关禁用，语音输入照常（只是没有纠错）。`build.py` 不再复制它。
+**纠错模型**（D15 统一根）：优先放 `%LOCALAPPDATA%\VoiceIME\models\llm`
+（重建 dist 不丢）；打包自带时在安装目录 `models/llm/` 兜底；缺失时配置页显示
+"模型缺失"并给出目录，开关禁用，语音输入照常（只是没有纠错）。
 
 **运行库（CRT）**：`build.py` 末尾会跑 `fix_msvc_runtime()` —— 用 `System32` 里更新的
 `msvcp140`/`vcruntime140`/`vcruntime140_1`/`concrt140` 覆盖 `_internal` 里的旧副本。

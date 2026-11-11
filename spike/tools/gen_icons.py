@@ -59,7 +59,8 @@ def export(img: Image.Image, out_dir: Path) -> None:
     )
 
     # favicon（SVG 版，几何与母版同参数，viewport 64 对齐 tray._image() 基准）
-    public = out_dir.parent / "frontend" / "public"
+    # out_dir 是 <frontend>/src-tauri/icons：parents[0]=src-tauri，parents[1]=<frontend>
+    public = out_dir.parents[1] / "public"
     public.mkdir(parents=True, exist_ok=True)
     (public / "favicon.svg").write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">'

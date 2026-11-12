@@ -77,12 +77,11 @@ Python 签名 ↔ Rust 的转接。Python 侧保留纯 Python 基准实现，两
 - 不要在托盘菜单里起 tkinter —— 主界面是 Web（`--web --tab`），`--gui` 只是旧版兜底
 - 不要按次加载模型 —— 模型常驻，启动 warmup 一次
 - 不要把模型放进仓库 —— 统一根是 `%LOCALAPPDATA%\VoiceIME\models\{asr,vad,llm}`
-  （D15），仓库 `models/` 已移除；打包时从统一根复制进安装目录 `models/` 兜底
-- 不要把纠错模型复制进 dist —— 重建 dist 会清空（G25 同理）；打包自带模型用
-  `build_core.py`（统一根 → `resources/models/` → 安装目录）
+  （D15），仓库 `models/` 已移除；**安装器默认不带模型**，离线开箱包用
+  `build_core.py --with-models`（统一根 → `resources/models/` → 安装目录）
 - 不要在仓库目录构建 exe —— 产物继承 Low 标签，钩子失效（G24）
 - 不要带着旧进程跑构建 —— `tauri build` 前先杀 `voiceime-tauri.exe`（它锁自己的产物，
-  os error 5，G37）；NSIS 安装包装不上先指干净 `TEMP` 再试（G38）
+  os error 5，G37）；NSIS 安装包装不上先复制出仓库剥 Low 标签（G38 真根因）
 - 改 VAD 阈值 / 分词规则必须跑 golden 用例，否则会静默误伤
 - 不要为了"便携"把 SQLite 放 exe 同级 —— 重建 dist 会清空（G25）
 - 不要让小模型"自由改写" —— 守卫必须拒绝删词/大改/解释性输出，宁可漏改（G32）

@@ -39,8 +39,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "resources/core/": "core/",
-      "resources/models/": "models/"
+      "resources/core/": "core/"
     }
   }
 }

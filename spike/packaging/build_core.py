@@ -93,12 +93,11 @@ MODELS_OUT = OUT.parent / "models"  # resources/models → 安装目录 models/
 def copy_models() -> None:
     """把**模型统一根**（`%LOCALAPPDATA%\\VoiceIME\\models`）复制进 Tauri 资源。
 
-    （D15，2026-11-11）产物随 `tauri build` 进安装目录 `models/`：
-    ASR / VAD / LLM 一个地方，开箱即用。运行时统一根在
-    `data_dir()/models`，安装目录这份是**就地兜底**
-    （安装目录只读也能用；用户在统一根放模型时优先级更高）。
-
-    `--no-models` 可跳过（调试壳、或不想每次 tauri build 都带 700MB 时）。
+    （D15，2026-11-11）**默认不复制**：安装器不带模型（2026-11-11 用户决策），
+    运行时从统一根 `%LOCALAPPDATA%\\VoiceIME\\models` 读。只有要出
+    「离线开箱即用」包时才传 `--with-models`，产物随 `tauri build` 进
+    安装目录 `models/` 作就地兜底（安装目录只读也能用；
+    用户在统一根放模型时优先级更高）。
     """
     src_root = paths.models_root()
     jobs = [
@@ -140,8 +139,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", default=str(REPO / ".tauri-work" / "pycore"))
     ap.add_argument("--clean", action="store_true")
-    ap.add_argument("--no-models", action="store_true",
-                    help="跳过复制模型（调试壳时用；正式安装包必须带）")
+    ap.add_argument("--with-models", action="store_true",
+                    help="把统一根模型复制进 resources/models（离线开箱即用包；"
+                         "默认不带，安装器不含 700MB 模型）")
     args = ap.parse_args()
 
     work = Path(args.work)
@@ -152,10 +152,10 @@ def main() -> int:
 
     app = build(work, args.clean)
     copy_entry(app)
-    if args.no_models:
-        print("[core] --no-models：跳过模型复制")
-    else:
+    if args.with_models:
         copy_models()
+    else:
+        print("[core] 默认不带模型（统一根提供；--with-models 可打离线包）")
     print(f"[core] 产物 {app}（{size_of(app):.1f} MB）")
     print("[core] 下一步：cd spike/frontend && pnpm tauri build（会把它打进安装包）")
     return 0

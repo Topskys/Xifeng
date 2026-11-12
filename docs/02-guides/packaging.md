@@ -98,16 +98,18 @@ uv run python tools/core_smoke.py              # 独立冒烟：ready→bootstra
 注意：统一根的探测是**只读**的——Low 完整性进程（沙箱调试）写不进
 `%LOCALAPPDATA%` 但读得到（G25 是写数据的规矩），所以沙箱里也能正常加载模型。
 
-打包时模型统一复制（`build_core.py` / `build.py --with-models`）：模型从统一根
-复制进安装目录 `models/`，作为**就地兜底**——全新机器开箱即用；用户在统一根
-放的模型优先级更高。LLM 缺失不致命：配置页显示"模型缺失"，按原文注入。
+**安装器默认不带模型**（2026-11-11 用户决策）：安装器只含核心（约 34 MiB），
+运行时从统一根 `%LOCALAPPDATA%\VoiceIME\models` 读模型。要出「离线开箱即用」
+包时才 `uv run python packaging/build_core.py --with-models`（统一根 →
+`resources/models/` → 安装目录 `models/` 就地兜底）。LLM 缺失不致命：
+配置页显示"模型缺失"，按原文注入。
 
 ## 数据与命令（打包后同样可用）
 
 | 数据 | 位置 |
 |---|---|
 | 历史 / 统计 / 设置 | `%LOCALAPPDATA%\VoiceIME\voiceime.db`（不可写时回退 `<exe 同级>\data`） |
-| 模型（ASR/VAD/LLM 统一根，D15） | `%LOCALAPPDATA%\VoiceIME\models\{asr,vad,llm}`；打包自带 `models/` 兜底 |
+| 模型（ASR/VAD/LLM 统一根，D15） | `%LOCALAPPDATA%\VoiceIME\models\{asr,vad,llm}`；离线包自带 `models/` 兜底 |
 | 纠错模型（可选） | 统一根 `models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf` 或 `IME_LLM_MODEL` |
 | 托盘日志 | `%LOCALAPPDATA%\VoiceIME\voiceime.log`（只记长度/结果/trace，不记识别全文） |
 | 音频 | 从不落盘 |

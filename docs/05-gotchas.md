@@ -830,18 +830,26 @@ NSIS Error: Error writing temporary file. Make sure your temp folder is valid.
 **解法**（按顺序试，第 1 步通常就过）：
 
 ```bat
-:: 1) 指个干净 TEMP 再装
+:: 0) 【2026-11-11 实锤的真根因】仓库目录带 Low 完整性标签（G24），
+::    在 target\ 里产出的 setup.exe 继承 `Mandatory Label\Low (NW)`；
+::    Low 进程写不进 TEMP / Program Files → 必报本错，换 TEMP 也没用。
+::    修复：把安装器复制出仓库再装（Copy-Item 重建文件，标签随目标目录走）：
+copy /Y target\release\bundle\nsis\VoiceIME_0.1.0_x64-setup.exe D:\env\
+::    复制后 icacls 应看不到 Mandatory Label 行，即可正常安装。
+::    验证方法：icacls setup.exe —— 有 "Low Mandatory Level" 行就是带毒标签。
+:: 1) 仍报错再指干净 TEMP
 mkdir D:\env\tmp\nsis-install
 set TEMP=D:\env\tmp\nsis-install
 set TMP=D:\env\tmp\nsis-install
-VoiceIME_0.1.0_x64-setup.exe
+D:\env\VoiceIME_0.1.0_x64-setup.exe
 
 :: 2) 解除 Mark of the Web 后以管理员运行
-powershell -c "Unblock-File '.\VoiceIME_0.1.0_x64-setup.exe'"
+powershell -c "Unblock-File 'D:\env\VoiceIME_0.1.0_x64-setup.exe'"
 
 :: 3) 查杀软拦截记录（Windows 安全中心 → 保护历史）
 ```
 
 **教训**：在这台机器上凡是「往 TEMP 解包/建临时文件」的工具
 （maturin、link.exe、NSIS 安装器）都可能踩同一个 ACL 坑，
-统一解法都是把 `TEMP`/`TMP` 指到 `D:\env\tmp`。
+统一解法都是把 `TEMP`/`TMP` 指到 `D:\env\tmp`；
+**交付物 exe 必须先离开 Low 标签目录再分发/运行**（G24 的又一实证）。

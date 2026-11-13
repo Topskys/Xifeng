@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 import threading
+from pathlib import Path
 from typing import Callable
 
 from . import autostart
@@ -70,8 +71,17 @@ def _image():
 
 
 def gui_command(tab: str = "stats") -> list[str]:
-    """打开主窗口的命令（Web GUI，子进程，独立于托盘/PTT 进程）。"""
+    """打开主窗口的命令（子进程，独立于托盘/PTT 进程）。
+
+    Tauri 交付形态（D14）：优先打开壳 exe（voiceime-tauri.exe，GUI 窗口），
+    `tab` 参数由前端 hash 决定，这里带不上（壳默认落在统计页）；
+    找不到壳时退回 Web GUI（`--web --tab`，Edge --app 旧方案，仍是可用兜底）。
+    """
     if getattr(sys, "frozen", False):
+        # sidecar 在 `<安装根>\core\VoiceIME-Core\VoiceIME-Core.exe`，壳在安装根。
+        shell = Path(sys.executable).resolve().parents[2] / "voiceime-tauri.exe"
+        if shell.is_file():
+            return [str(shell)]
         return [sys.executable, "--web", "--tab", tab]
     entry = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "run_spike.py")
     return [sys.executable, entry, "--web", "--tab", tab]
@@ -109,33 +119,13 @@ class Tray:
     def _menu(self):
         import pystray
 
-        def _open(tab: str):  # noqa: ANN202
-            return lambda icon, item: launch_gui(tab)
-
+        # 两项即可（2026-11-11 用户决策）：显示主界面 / 退出。
+        # 页面切换、开机自启都在主窗口里做，托盘不再承担二级菜单。
         return pystray.Menu(
-            pystray.MenuItem("打开主窗口", lambda icon, item: self._on_open(), default=True),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("统计", _open("stats")),
-            pystray.MenuItem("模型", _open("models")),
-            pystray.MenuItem("配置", _open("config")),
-            pystray.MenuItem("历史", _open("history")),
-            pystray.MenuItem("关于", _open("about")),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem(
-                "开机自启",
-                self._toggle_autostart,
-                checked=lambda item: autostart.is_enabled(),
-            ),
+            pystray.MenuItem("显示主界面", lambda icon, item: self._on_open(), default=True),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("退出", lambda icon, item: self._quit()),
         )
-
-    def _toggle_autostart(self, icon, item) -> None:  # noqa: ANN001
-        try:
-            on = autostart.toggle()
-            self.notify("开机自启", "已开启" if on else "已关闭")
-        except Exception as exc:  # noqa: BLE001
-            self.notify("开机自启", f"失败：{exc}")
 
     def _quit(self) -> None:
         self.stop()

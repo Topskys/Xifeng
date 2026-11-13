@@ -577,6 +577,56 @@ fn python_exe() -> OsString {
     OsString::from("python")
 }
 
+/// 拉起语音服务：常驻进程（`--ptt --tray`），热键钩子（WH_KEYBOARD_LL）、
+/// 托盘、浮窗与注入都在它里面。
+///
+/// 为什么必须单独进程：`--ipc` 核心是纯协议进程，不装钩子、不启托盘
+/// （契约红线，见 ipc-contract.md），壳自己也不做这些（Win32 钩子逻辑
+/// 已在 Python 侧打磨过）。触发链 MUST 由这个常驻进程提供。
+///
+/// 幂等：语音服务有自己的命名 Mutex（`tray.acquire_single_instance`），
+/// 已有实例（比如开机自启拉起的）时本次 spawn 的进程会静默退出。
+/// 壳不 wait、不管它的生命周期：关窗只收 IPC 核心，语音服务常驻。
+///
+/// 失败不致命（返回 Err 由调用方记日志）：比如 sidecar 缺失时窗口还能用，
+/// 但没有语音——日志里能看到原因。
+pub fn spawn_voice_service() -> Result<u32, String> {
+    let python = python_exe();
+    let dir = core_dir();
+    let is_sidecar = Path::new(&python)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.eq_ignore_ascii_case("VoiceIME-Core.exe"));
+
+    let mut cmd = Command::new(&python);
+    if !is_sidecar {
+        cmd.arg("run_spike.py");
+    }
+    cmd.args(["--ptt", "--tray"]);
+    cmd.current_dir(&dir);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW：语音服务是控制台子系统，别闪黑框
+        //（--tray 自己也会藏控制台，这里从源头就不给它窗口）。
+        cmd.creation_flags(0x0800_0000);
+    }
+
+    let child = cmd.spawn().map_err(|e| {
+        format!(
+            "拉起语音服务失败：{} --ptt --tray（工作目录 {}）：{e}",
+            python.to_string_lossy(),
+            dir.display()
+        )
+    })?;
+    eprintln!(
+        "[shell] 已拉起语音服务 pid={}（--ptt --tray，常驻，Mutex 防双开）",
+        child.id()
+    );
+    Ok(child.id())
+}
+
 /// Python 核心所在目录（`run_spike.py` 的父目录）。
 ///
 /// 优先 `VOICEIME_CORE_DIR`；打包态找 exe 同级 `python/`；开发态从

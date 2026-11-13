@@ -168,17 +168,29 @@ def test_web_dispatch_passes_tab(monkeypatch) -> None:  # noqa: ANN001
     assert seen == {"db": None, "tab": "config"}
 
 
-def test_tray_gui_command_uses_web(monkeypatch) -> None:  # noqa: ANN001
-    """托盘菜单不能再起 tkinter：统一 `--web --tab <页>`，默认统计页。"""
+def test_tray_gui_command(monkeypatch, tmp_path) -> None:
+    """托盘「显示主界面」优先开 Tauri 壳；找不到壳才退回 `--web --tab` 兜底。"""
     from voiceime_spike import tray as tray_mod
 
+    # 源码形态：没有壳 exe → Web GUI 兜底
     cmd = tray_mod.gui_command("about")
-    assert "--web" in cmd and "--gui" not in cmd
     assert cmd[-3:] == ["--web", "--tab", "about"]
+    assert "--gui" not in cmd
 
+    # 冻结 + 壳存在 → 开壳（sidecar 上两级是安装根）
+    fake_core = tmp_path / "core" / "VoiceIME-Core" / "VoiceIME-Core.exe"
+    fake_core.parent.mkdir(parents=True)
+    fake_core.write_bytes(b"")
+    shell = tmp_path / "voiceime-tauri.exe"
+    shell.write_bytes(b"")
     monkeypatch.setattr(tray_mod.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(tray_mod.sys, "executable", str(fake_core))
+    assert tray_mod.gui_command() == [str(shell)]
+
+    # 冻结但壳缺失（PyInstaller 单体形态）→ 退回 Web GUI
+    shell.unlink()
     frozen = tray_mod.gui_command()
-    assert frozen == [sys.executable, "--web", "--tab", "stats"]
+    assert frozen == [str(fake_core), "--web", "--tab", "stats"]
 
 
 def test_applog_rescues_missing_stdout(monkeypatch, tmp_path) -> None:  # noqa: ANN001

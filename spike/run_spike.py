@@ -275,7 +275,7 @@ def tray_mode(
     tray = tray_mod.Tray(on_quit=stop.set)
     try:
         tray.start()
-        print("[tray] 已启动：右键托盘图标可打开主窗口/开机自启/退出", flush=True)
+        print("[tray] 已启动：托盘图标右键 → 显示主界面 / 退出", flush=True)
         tray.notify("VoiceIME", "已在后台运行：按住 Ctrl 说话，松开输入")
         args.times = 0
         return ptt_loop(pipe, args, store, sample_rate, should_stop=stop.is_set)

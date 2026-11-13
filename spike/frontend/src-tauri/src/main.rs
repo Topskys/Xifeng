@@ -93,6 +93,11 @@ fn main() {
                 if let Err(e) = bridge.start(app.handle().clone()) {
                     eprintln!("[shell] Python 核启动失败：{e}");
                 }
+                // 语音服务（热键钩子/托盘/浮窗/注入）是独立常驻进程：
+                // --ipc 核心不装钩子，触发链在这里补上（幂等，Mutex 防双开）。
+                if let Err(e) = py::spawn_voice_service() {
+                    eprintln!("[shell] {e}");
+                }
                 Ok(())
             }
         })

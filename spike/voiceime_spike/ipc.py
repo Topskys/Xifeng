@@ -24,6 +24,7 @@ from collections.abc import Callable
 from typing import IO, Any
 
 from . import settings as user_settings
+from .asr_runtime import AsrRuntime
 from .store import Store
 from .webgui import Api
 
@@ -43,6 +44,15 @@ METHODS: dict[str, str | None] = {
     "open": "open",
     "check_update": "check_update",
     "shutdown": None,
+}
+
+#: D16 运行时方法（Rust 壳驱动的推理通道）：不在 `Api` 上，
+#: 由 `asr_runtime.AsrRuntime` 实现，见 ipc-contract.md「方法表」
+RUNTIME_METHODS: dict[str, str] = {
+    "asr_begin": "begin",
+    "asr_feed": "feed",
+    "asr_end": "end",
+    "asr_cancel": "cancel",
 }
 
 #: 参数是一整个 JSON 对象的方法（`Api` 里签名就是 `body: dict`）
@@ -141,7 +151,12 @@ def _keyword_args(fn: Callable[..., Any], method: str, params: object) -> dict[s
     return body
 
 
-def _dispatch(api: Api, method: str, params: object) -> Any:
+def _dispatch(api: Api, runtime: AsrRuntime, method: str, params: object) -> Any:
+    rt_target = RUNTIME_METHODS.get(method)
+    if rt_target is not None:
+        fn = getattr(runtime, rt_target)
+        args = _keyword_args(fn, method, params)
+        return fn(**args)
     target = METHODS.get(method)
     if target is None:
         raise KeyError(f"unknown method: {method}")
@@ -174,7 +189,7 @@ def _is_expected(exc: BaseException) -> bool:
     return isinstance(exc, (KeyError, ValueError, TypeError))
 
 
-def _handle(api: Api, message: object) -> tuple[dict[str, Any], bool]:
+def _handle(api: Api, runtime: AsrRuntime, message: object) -> tuple[dict[str, Any], bool]:
     """处理一条消息，返回 (响应, 是否该退出)。任何异常都变成 error 响应。"""
     if not isinstance(message, dict):
         return {"id": None, "ok": False, "error": "消息必须是 JSON 对象"}, False
@@ -188,11 +203,11 @@ def _handle(api: Api, message: object) -> tuple[dict[str, Any], bool]:
     if method == "shutdown":
         return {"id": req_id, "ok": True, "result": {"ok": True}}, True
 
-    if method not in METHODS:
+    if method not in METHODS and method not in RUNTIME_METHODS:
         return {"id": req_id, "ok": False, "error": f"unknown method: {method}"}, False
 
     try:
-        result = _dispatch(api, method, message.get("params"))
+        result = _dispatch(api, runtime, method, message.get("params"))
     except Exception as exc:  # noqa: BLE001 - 单条消息失败不能带走进程
         _log(f"{method} 失败：{type(exc).__name__}: {exc}")
         if not _is_expected(exc):
@@ -207,16 +222,24 @@ def serve(
     *,
     stdin: IO[str] | None = None,
     stdout: IO[str] | None = None,
+    runtime: AsrRuntime | None = None,
 ) -> int:
     """跑 IPC 主循环，直到 `shutdown` 或 stdin EOF。
 
     `stdout` 必须是「真正的」协议流（`run_spike --ipc` 会把 `sys.stdout`
     换到 stderr 后把原始流传进来），这里不再 print 任何非协议内容。
+
+    `runtime` 是 D16 推理运行时（`asr_begin/feed/end/cancel` 四个方法的状态）；
+    不传时用默认配置兜底（懒加载、不起后台 warmup 线程——测试路径不与全局
+    ASR 状态竞争）。`run_spike.ipc_mode` 会按命令行参数显式构造并传入，
+    ready 之后由后台线程 warmup，首次 `asr_begin` 不等冷启动。
     """
     api = Api(store)
     if settings is not None:
         # 命令行/数据库已经算过一次，别让 Api 再读一遍（也保证 --ipc 与其他模式一致）
         api.settings = settings
+    if runtime is None:
+        runtime = AsrRuntime(autostart_warmup=False)
 
     out = _Protocol(stdout if stdout is not None else sys.stdout)
     src = stdin if stdin is not None else sys.stdin
@@ -230,14 +253,21 @@ def serve(
 
     try:
         out.send({"event": "ready", "result": {"pid": os.getpid()}})
-        return _loop(api, src, out)
+        warmup_thread = runtime.start_warmup() if runtime.autostart_warmup else None
+        try:
+            # ready 已发出才起后台 warmup：绝不阻塞 ready，也绝不阻塞协议主循环
+            return _loop(api, runtime, src, out)
+        finally:
+            if warmup_thread is not None:
+                # shutdown/EOF 后 join warmup 线程再退出，保证退出码干净
+                runtime.stop_warmup()
     except BrokenPipeError:
         # 壳进程先退了：协议通道没人读，收工（不留僵尸进程）
         _log("stdout 已关闭（壳进程退出），本地收工")
         return 0
 
 
-def _loop(api: Api, src: IO[str], out: _Protocol) -> int:
+def _loop(api: Api, runtime: AsrRuntime, src: IO[str], out: _Protocol) -> int:
     while True:
         line = src.readline()
         if not line:      # EOF：壳关掉了 stdin
@@ -254,7 +284,7 @@ def _loop(api: Api, src: IO[str], out: _Protocol) -> int:
             out.send({"id": None, "ok": False, "error": f"invalid json: {exc}"})
             continue
 
-        response, stop = _handle(api, message)
+        response, stop = _handle(api, runtime, message)
         out.send(response)
         if stop:
             _log("shutdown，退出")

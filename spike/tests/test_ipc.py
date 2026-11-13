@@ -37,6 +37,9 @@ CONTRACT_METHODS = {
     "shutdown",
 }
 
+#: D16 运行时方法（ipc-contract.md「D16 运行时方法」节，Rust 壳驱动）
+RUNTIME_METHODS = {"asr_begin", "asr_feed", "asr_end", "asr_cancel"}
+
 
 @pytest.fixture
 def store(tmp_path: Path) -> Store:
@@ -321,6 +324,17 @@ def test_method_table_matches_contract_and_api() -> None:
             assert target is None          # 主循环自己处理，没有 Api 方法
             continue
         assert callable(getattr(webgui.Api, target, None)), f"{method} → {target} 不存在"
+
+
+def test_runtime_method_table_matches_contract() -> None:
+    """D16 运行时方法与契约一致，且不与 HTTP 对应方法重叠。"""
+    from voiceime_spike.asr_runtime import AsrRuntime
+
+    assert set(ipc.RUNTIME_METHODS) == RUNTIME_METHODS
+    assert len(ipc.RUNTIME_METHODS) == 4
+    assert set(ipc.RUNTIME_METHODS) & set(ipc.METHODS) == set()
+    for method, target in ipc.RUNTIME_METHODS.items():
+        assert callable(getattr(AsrRuntime, target, None)), f"{method} → {target} 不存在"
 
 
 def test_http_routes_are_all_exposed_over_ipc() -> None:

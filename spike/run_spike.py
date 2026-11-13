@@ -197,8 +197,20 @@ def ipc_mode(args: argparse.Namespace, argv: list[str] | None = None) -> int:
             print("[ipc] ⚠ 无数据库（--no-db），使用内存库，数据不落盘", file=sys.stderr, flush=True)
             store = Store(":memory:")
         cfg = apply_user_settings(args, store, argv)
+        # D16 运行时：Rust 壳经 asr_begin/feed/end/cancel 驱动推理；
+        # 裁剪语义与 ptt_loop 一致（--trim/--vad，命令行与用户设置已在此合流），
+        # 后处理/注入不在这里做（Rust 壳负责）。ready 后后台线程 warmup。
+        from voiceime_spike.asr_runtime import AsrRuntime
+
+        runtime = AsrRuntime(
+            backend=args.backend,
+            model_dir=args.model_dir,
+            threads=args.threads,
+            use_vad=args.vad,
+            trim_silence=args.trim,
+        )
         try:
-            return ipc.serve(store, cfg, stdout=proto_out)
+            return ipc.serve(store, cfg, stdout=proto_out, runtime=runtime)
         finally:
             store.close()
     finally:

@@ -97,6 +97,53 @@ def record_interactive(sample_rate: int = 16000) -> np.ndarray:
     return np.concatenate(chunks).reshape(-1).astype(np.int16)
 
 
+def prepare_pcm(
+    pcm: np.ndarray,
+    *,
+    use_vad: bool = False,
+    vad: vadlib.SileroVad | None = None,
+    vad_cfg: vadlib.VadConfig | None = None,
+    trim_silence: bool = True,
+    trim_cfg: vadlib.TrimConfig | None = None,
+    sample_rate: int = 16000,
+) -> tuple[np.ndarray, dict[str, int]]:
+    """可选 VAD 切分 + 首尾静音裁剪：`process_pcm`（ptt_loop）与 IPC 运行时
+    （D16，`asr_runtime.AsrRuntime`）共用的前半段。
+
+    返回 `(处理后的 PCM, 耗时明细)`，明细键：`ms_vad` / `ms_trim` / `trimmed_ms`。
+    全静音或切不出语音段时 PCM 为空数组，调用方按 Dropped 处理。
+    算法不在这里实现：切分/重建/裁剪全部复用 `vad` 模块，只保证调用顺序与
+    `process_pcm` 历史行为一致。
+    """
+    pcm = np.asarray(pcm, dtype=np.int16)
+    timings = {"ms_vad": 0, "ms_trim": 0, "trimmed_ms": 0}
+
+    # --- 可选 VAD（M1：Silero 双阈值切分；模型缺失回退能量法）
+    if use_vad:
+        t_vad = time.perf_counter()
+        if vad is not None:
+            segments = vad.segment(pcm, vad_cfg or vadlib.VadConfig())
+        else:
+            segments = vadlib.segment(pcm, vad_cfg)
+        timings["ms_vad"] = max(0, int((time.perf_counter() - t_vad) * 1000))
+        if not segments:
+            return np.zeros(0, dtype=np.int16), timings
+        pcm = vadlib.rebuild(pcm, segments)
+
+    if len(pcm) == 0:
+        return np.zeros(0, dtype=np.int16), timings
+
+    # --- 首尾静音裁剪（在任何推理之前；省掉的不只是时间，还有幻觉）
+    if trim_silence:
+        t_trim = time.perf_counter()
+        pcm, timings["trimmed_ms"] = vadlib.trim(pcm, trim_cfg, sample_rate)
+        timings["ms_trim"] = max(0, int((time.perf_counter() - t_trim) * 1000))
+        if len(pcm) == 0:
+            return np.zeros(0, dtype=np.int16), timings
+
+    return pcm, timings
+
+
 class Pipeline:
     def __init__(self, cfg: PipelineConfig | None = None, sink: TraceSink | None = None) -> None:
         self.cfg = cfg or PipelineConfig()
@@ -167,30 +214,22 @@ class Pipeline:
         pcm = np.asarray(pcm, dtype=np.int16)
         trace.speech_ms = int(len(pcm) / cfg.sample_rate * 1000)
 
-        # --- 可选 VAD（M1：Silero 双阈值切分；模型缺失回退能量法）
-        if cfg.use_vad:
-            t_vad = time.perf_counter()
-            if self._vad is not None:
-                segments = self._vad.segment(pcm, cfg.vad)
-            else:
-                segments = vadlib.segment(pcm, cfg.vad)
-            trace.ms_vad = max(0, int((time.perf_counter() - t_vad) * 1000))
-            if not segments:
-                trace.outcome = Outcome.DROPPED
-                return self._finish(trace, None, "")
-            pcm = vadlib.rebuild(pcm, segments)
+        # --- 可选 VAD + 首尾静音裁剪（与 IPC 运行时共用，见 prepare_pcm）
+        pcm, prep = prepare_pcm(
+            pcm,
+            use_vad=cfg.use_vad,
+            vad=self._vad,
+            vad_cfg=cfg.vad,
+            trim_silence=cfg.trim_silence,
+            trim_cfg=cfg.trim,
+            sample_rate=cfg.sample_rate,
+        )
+        trace.ms_vad = prep["ms_vad"]
+        trace.ms_trim = prep["ms_trim"]
+        trace.trimmed_ms = prep["trimmed_ms"]
         if len(pcm) == 0:
             trace.outcome = Outcome.DROPPED
             return self._finish(trace, None, "")
-
-        # --- 首尾静音裁剪（在任何推理之前；省掉的不只是时间，还有幻觉）
-        if cfg.trim_silence:
-            t_trim = time.perf_counter()
-            pcm, trace.trimmed_ms = vadlib.trim(pcm, cfg.trim, cfg.sample_rate)
-            trace.ms_trim = max(0, int((time.perf_counter() - t_trim) * 1000))
-            if len(pcm) == 0:
-                trace.outcome = Outcome.DROPPED
-                return self._finish(trace, None, "")
 
         # --- ASR
         t0 = time.perf_counter()

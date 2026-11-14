@@ -15,12 +15,30 @@ mod py;
 mod tray;
 mod voice;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value};
-use tauri::{RunEvent, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder};
 
 use py::PythonBridge;
+
+/// 设置热更（P2-①）：前端保存设置后调用，重新从核心读 settings。
+/// 改动在**下一次语音会话开始**生效（会话中段换配置没有意义）。
+#[tauri::command]
+async fn voice_reload_settings(
+    bridge: State<'_, Arc<PythonBridge>>,
+    cfg: State<'_, Arc<Mutex<voice::VoiceSettings>>>,
+) -> Result<(), String> {
+    let bridge = Arc::clone(bridge.inner());
+    let cfg = Arc::clone(cfg.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        *cfg.lock().unwrap() = voice::VoiceSettings::load(&bridge);
+        eprintln!("[shell] 设置已热更（下一次语音会话生效）");
+    })
+    .await
+    .map_err(|e| format!("设置热更异常：{e}"))?;
+    Ok(())
+}
 
 /// 前端唯一入口：把一次方法调用透传给 Python 核。
 ///
@@ -174,6 +192,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             py_call,
             voice_test,
+            voice_reload_settings,
             autostart::autostart_cmd,
             start_dragging,
             minimize,
@@ -226,9 +245,12 @@ fn main() {
                 if hook.active() {
                     let app = app.handle().clone();
                     let hook = std::clone::Clone::clone(&hook); // 编排线程一份，else 分支还要用
+                    // 设置共享格：voice::run 首次装载；voice_reload_settings 热更
+                    let cfg = Arc::new(Mutex::new(voice::VoiceSettings::load(&bridge)));
+                    app.manage(Arc::clone(&cfg));
                     let spawned = std::thread::Builder::new()
                         .name("voice-orchestrator".into())
-                        .spawn(move || voice::run(bridge, hook, app));
+                        .spawn(move || voice::run(bridge, hook, app, cfg));
                     if let Err(e) = spawned {
                         // 降级不 panic：窗口/托盘仍可用，只是语音不可用
                         eprintln!("[shell] 起语音编排线程失败：{e}（语音功能不可用）");

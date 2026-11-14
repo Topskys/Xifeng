@@ -207,6 +207,17 @@ async function call<T>(path: string, params: Record<string, unknown> = {}): Prom
     if (path === "/api/autostart") {
       return unwrapIpc<T>(await invoke("autostart_cmd", params))
     }
+    // P2-① 设置热更：保存成功后让壳重新读 settings（下一次语音会话生效）。
+    // 旧壳没有这条命令时忽略——改设置仍可用，重启后生效。
+    if (route.method === "settings_save" || route.method === "settings_reset") {
+      const res = await invoke("py_call", { method: route.method, params })
+      try {
+        await invoke("voice_reload_settings")
+      } catch {
+        /* 旧壳：无热更命令，保持重启生效 */
+      }
+      return unwrapIpc<T>(res)
+    }
     return unwrapIpc<T>(await invoke("py_call", { method: route.method, params }))
   }
   return httpCall<T>(path, route.verb, params)

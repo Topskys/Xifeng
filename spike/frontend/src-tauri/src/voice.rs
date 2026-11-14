@@ -36,7 +36,7 @@ const MIN_HOLD_MS: u64 = 250; // 误触保护：按住不足直接丢弃
 const MAX_SECONDS: u64 = 60; // 单次录音上限
 const DRAIN_MS: u64 = 120; // 松手后继续收流的时长（G23 尾音）
 const SAMPLE_RATE: u32 = 16000; // ASR 输入采样率
-const FEED_INTERVAL_MS: u64 = 40; // 喂送节奏（一批约 1.2s 内的量，分块送）
+const FEED_INTERVAL_MS: u64 = 40; // 喂送窗口：每窗攒 ≥40ms 音频作为一批（P2-① 节流）
 
 // ---------------------------------------------------------------- 无锁环形缓冲
 
@@ -245,6 +245,10 @@ impl Resampler {
 
 /// 起喂送线程：环形缓冲 → 下混+重采样 → base64 → asr_feed。
 /// 顺带把每批的音量（RMS 0..1）发给浮窗（`voice://level`）。
+///
+/// 节流（P2-①）：固定 40ms 窗口——每个窗口攒到的量作为一批送出，
+/// 批大小不再随 IPC 速度漂移（旧实现攒到多少送多少，小批多调、
+/// 往返开销偏高）；`voice://level` 也随之稳定为约 40ms 一发。
 fn spawn_feeder(
     ring: Arc<Ring>,
     collecting: Arc<AtomicBool>,
@@ -259,7 +263,8 @@ fn spawn_feeder(
         let mut resampled: Vec<i16> = Vec::new();
         let interval = Duration::from_millis(FEED_INTERVAL_MS);
         loop {
-            // 一次最多取 ~0.5s 原生数据，避免单批过大
+            let window = Instant::now();
+            // 一次最多取 ~0.5s 原生数据（积压时的上限；正常一个窗口约 40ms 的量）
             raw.clear();
             ring.drain(rate as usize * channels / 2, &mut raw);
             if raw.is_empty() {
@@ -288,6 +293,11 @@ fn spawn_feeder(
             if let Err(e) = bridge.call("asr_feed", serde_json::json!({ "pcm_b64": pcm_b64 })) {
                 eprintln!("[voice] asr_feed 失败：{e}");
                 return; // 核没了：本次会话作废（编排层会感知到后续调用失败）
+            }
+            // 节流：窗口起点起算 40ms——IPC 快慢只影响批大小，不影响节奏
+            let spent = window.elapsed();
+            if spent < interval {
+                std::thread::sleep(interval - spent);
             }
         }
     })
@@ -359,86 +369,123 @@ struct SessionStats {
     truncated: bool,
 }
 
-/// 编排主循环：`ptt_loop(while infinite)` 的等价实现。
-pub fn run(bridge: Arc<PythonBridge>, hook: Arc<Hook>, app: AppHandle) {
-    // 用户设置取一次（热键/注入策略/后处理参数）；改设置要重启壳（P2 再做热更）
-    let settings = bridge
-        .call("bootstrap", serde_json::json!({}))
-        .ok()
-        .and_then(|v| v.get("settings").cloned());
-    let key = settings
-        .as_ref()
-        .and_then(|s| s.get("hotkey"))
-        .and_then(|v| v.as_str())
-        .map(hotkey::KeyPreset::parse)
-        .unwrap_or(hotkey::KEY_CTRL);
-    // 配置错误显式报出来（inject.py 对未知策略是显式 Failed；壳侧设置是持久化值，
-    // 静默兜底会掩盖拼错——至少 ERROR 级别喊出来。宁可功能可用，错误显眼。）
-    let inject_strategy_raw = settings
-        .as_ref()
-        .and_then(|s| s.get("inject_strategy"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("auto");
-    if !matches!(inject_strategy_raw.trim().to_ascii_lowercase().as_str(), "unicode" | "clipboard" | "auto") {
-        eprintln!("[voice] ⚠ 设置里的注入策略「{inject_strategy_raw}」不是 unicode/clipboard/auto，按 auto 处理（请检查配置）");
-    }
-    let inject_cfg = InjectConfig {
-        strategy: settings
+/// 一份已解析的用户设置（热键/注入/后处理/纠错）。
+///
+/// 热更（P2-①）：`voice_reload_settings` 命令重新 load 写进共享
+/// `Arc<Mutex<VoiceSettings>>`；编排循环在**每次会话开始**取一次——
+/// 会话中段换配置没有意义，改动在下一次会话生效。
+#[derive(Clone)]
+pub struct VoiceSettings {
+    pub vks: Vec<u32>,
+    pub inject_cfg: InjectConfig,
+    pub post_cfg: ime_post::PostConfig,
+    pub model_correct: bool,
+}
+
+impl VoiceSettings {
+    /// 从 Python 核的 settings 解析。bridge 失败 → 全默认值
+    /// （KEY_CTRL / Auto / PostConfig::default / 纠错关），与旧 run() 同语义。
+    pub fn load(bridge: &PythonBridge) -> Self {
+        let settings = bridge
+            .call("bootstrap", serde_json::json!({}))
+            .ok()
+            .and_then(|v| v.get("settings").cloned());
+        let key = settings
+            .as_ref()
+            .and_then(|s| s.get("hotkey"))
+            .and_then(|v| v.as_str())
+            .map(hotkey::KeyPreset::parse)
+            .unwrap_or(hotkey::KEY_CTRL);
+        // 配置错误显式报出来（inject.py 对未知策略是显式 Failed；壳侧设置是持久化值，
+        // 静默兜底会掩盖拼错——至少 ERROR 级别喊出来。宁可功能可用，错误显眼。）
+        let inject_strategy_raw = settings
             .as_ref()
             .and_then(|s| s.get("inject_strategy"))
             .and_then(|v| v.as_str())
-            .map(InjectStrategy::parse)
-            .unwrap_or(InjectStrategy::Auto),
-        restore_focus: settings
+            .unwrap_or("auto");
+        if !matches!(inject_strategy_raw.trim().to_ascii_lowercase().as_str(), "unicode" | "clipboard" | "auto") {
+            eprintln!("[voice] ⚠ 设置里的注入策略「{inject_strategy_raw}」不是 unicode/clipboard/auto，按 auto 处理（请检查配置）");
+        }
+        let inject_cfg = InjectConfig {
+            strategy: settings
+                .as_ref()
+                .and_then(|s| s.get("inject_strategy"))
+                .and_then(|v| v.as_str())
+                .map(InjectStrategy::parse)
+                .unwrap_or(InjectStrategy::Auto),
+            restore_focus: settings
+                .as_ref()
+                .and_then(|s| s.get("restore_focus"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            clipboard_restore_ms: settings
+                .as_ref()
+                .and_then(|s| s.get("clipboard_restore_ms"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(500),
+            ..InjectConfig::default()
+        };
+        let post_cfg = ime_post::PostConfig {
+            filler_level: settings
+                .as_ref()
+                .and_then(|s| s.get("filler_level"))
+                .and_then(|v| v.as_str())
+                .map(ime_post::FillerLevel::parse)
+                .unwrap_or_default(),
+            final_punct: settings
+                .as_ref()
+                .and_then(|s| s.get("final_punct"))
+                .and_then(|v| v.as_str())
+                .map(ime_post::FinalPunct::parse)
+                .unwrap_or_default(),
+            space_between_cjk_latin: settings
+                .as_ref()
+                .and_then(|s| s.get("space_between_cjk_latin"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
+            ..ime_post::PostConfig::default()
+        };
+        // 本地 LLM 纠错开关（G32 守卫在 Python correction.check 内，applied=false 即拒绝）
+        let model_correct = settings
             .as_ref()
-            .and_then(|s| s.get("restore_focus"))
+            .and_then(|s| s.get("model_correct"))
             .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        clipboard_restore_ms: settings
-            .as_ref()
-            .and_then(|s| s.get("clipboard_restore_ms"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(500),
-        ..InjectConfig::default()
-    };
-    let post_cfg = ime_post::PostConfig {
-        filler_level: settings
-            .as_ref()
-            .and_then(|s| s.get("filler_level"))
-            .and_then(|v| v.as_str())
-            .map(ime_post::FillerLevel::parse)
-            .unwrap_or_default(),
-        final_punct: settings
-            .as_ref()
-            .and_then(|s| s.get("final_punct"))
-            .and_then(|v| v.as_str())
-            .map(ime_post::FinalPunct::parse)
-            .unwrap_or_default(),
-        space_between_cjk_latin: settings
-            .as_ref()
-            .and_then(|s| s.get("space_between_cjk_latin"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-        ..ime_post::PostConfig::default()
-    };
-    let vks = key.vks();
-    // 本地 LLM 纠错开关（G32 守卫在 Python correction.check 内，applied=false 即拒绝）
-    let model_correct = settings
-        .as_ref()
-        .and_then(|s| s.get("model_correct"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    eprintln!(
-        "[voice] 双击热键后保持长按说话，松开输入；Esc 取消；按需开麦 \
-         （热键={:?} 注入策略={:?} 填充词={:?} 纠错={}）",
-        key, inject_cfg.strategy, post_cfg.filler_level, if model_correct { "开" } else { "关" }
-    );
+            .unwrap_or(false);
+        Self { vks: key.vks().to_vec(), inject_cfg, post_cfg, model_correct }
+    }
+}
+
+/// 编排主循环：`ptt_loop(while infinite)` 的等价实现。
+pub fn run(
+    bridge: Arc<PythonBridge>,
+    hook: Arc<Hook>,
+    app: AppHandle,
+    cfg: Arc<Mutex<VoiceSettings>>,
+) {
+    {
+        let mut slot = cfg.lock().unwrap();
+        *slot = VoiceSettings::load(&bridge); // 首次装载（命令热更前这里也可能被调）
+        let s = &*slot;
+        eprintln!(
+            "[voice] 双击热键后保持长按说话，松开输入；Esc 取消；按需开麦 \
+             （热键按键={:?} 注入策略={:?} 填充词={:?} 纠错={}）",
+            s.vks,
+            s.inject_cfg.strategy,
+            s.post_cfg.filler_level,
+            if s.model_correct { "开" } else { "关" }
+        );
+    }
     if !hook.active() {
         eprintln!("[voice] ⚠ 键盘钩子未就绪，按键采集不可用");
         return;
     }
     loop {
-        if !wait_for_double_tap(&hook, vks) {
+        // 每次会话开始取一次设置：热更在会话边界生效
+        let (vks, inject_cfg, post_cfg, model_correct) = {
+            let s = cfg.lock().unwrap();
+            (s.vks.clone(), s.inject_cfg.clone(), s.post_cfg.clone(), s.model_correct)
+        };
+        if !wait_for_double_tap(&hook, &vks) {
             return;
         }
         if let Err(e) = bridge.call("asr_begin", serde_json::json!({})) {
@@ -487,7 +534,7 @@ pub fn run(bridge: Arc<PythonBridge>, hook: Arc<Hook>, app: AppHandle) {
                 stats.combo = true; // Ctrl+其它键：整段丢弃
                 break;
             }
-            if !hook.pressed(vks) {
+            if !hook.pressed(&vks) {
                 break; // 松开
             }
             if t0.elapsed().as_secs() >= MAX_SECONDS {

@@ -268,7 +268,7 @@ voice-ime/
 |---|---|---|
 | P1a（已完成 afc3e2b） | IPC 运行时方法 | pytest 309 全绿 + core_smoke + e2e 脚本 |
 | P1b+P1c（已完成，本 commit） | hotkey.rs / voice.rs / inject.rs + main.rs 接线 | `cargo test` 13 单测零 warning ✓；便携壳 e2e（`tools/voice_e2e.py` 经 CDP 9334 驱动真实钩子）：双击触发 ✓ / 误触（hold<250ms 丢弃+asr_cancel）✓ / 正常会话（hold=749ms→asr_end in_frames=8481 ms=67→空文本不注入）✓ / 单击对照组不触发 ✓ / 注入 smoke（voice_test inject）outcome=Injected 且自家钩子零误触发（G20）✓ |
-| **延迟报数（G3，已完成）** | 各阶段耗时落日志：`会话完成：hold=…ms 松手→asr_end=…ms 后处理=…ms 注入=…ms`；asr 解码 67ms/0.53s 音频，松手→asr_end 22–68ms（+drain 120ms） | 实测对预算余量充足；`asr_feed` IPC 往返单测未做（喂送节流在 P2 一并做），登记为 P2 |
+| **延迟报数（G3，已完成）** | 各阶段耗时落日志：`会话完成：hold=…ms 松手→asr_end=…ms 后处理=…ms 纠错=…ms 注入=…ms`；asr 解码 67ms/0.53s 音频，松手→asr_end 22–68ms（+drain 120ms） | 实测对预算余量充足；asr_feed IPC 往返成本单测（P2-① 补）：**真实子进程管道逐条计时 avg=0.26ms / p50=0.25ms / p95=0.31ms**（20 批 × 640 帧），远低于 40ms 窗口预算 |
 | **重采样质量（G3，已完成）** | 16k 真人录音 → 高质量上采 48k（模拟 WASAPI 原生流）→ Rust Resampler 等价线性插值降采 16k | 基线 CER 3.3%（正确 3/5） vs 重采样路径 **CER 2.4%（正确 4/5）**，不劣化，合格（`tools/resample_cer.py` 可复现） |
 | P1d（已完成，本 commit） | tray.rs / autostart.rs / Overlay.tsx / withGlobalTauri / 退役 spawn_voice_service | 前端 build ✓；便携壳实测：托盘两项 / 自启写键（值名 VoiceIME 指向壳 exe，与 Python 状态互通）/ 浮窗 webview（黑 Mic 图标）show-hide ✓ |
 | 合并前（已完成） | 独立上下文复审（新会话只给 diff + 本节 + review 清单，21 项逐条核） | 复审结论：inject.rs/hotkey/voice 语义对齐全部通过；**阻断项 1（用户设置被默认值覆盖）已修**（post_cfg/inject_cfg 传入 process/inject_ex）；建议项已处理：环容量按原生率×声道重算 ✓、dropped/流错误计数接出日志 ✓、未知注入策略边界显式报错 ✓、autostart_cmd 统一 {ok,error} ✓、编排线程 spawn 失败降级不 panic ✓、AGENTS.md 口径更新 ✓；其余登记见风险节 |
@@ -283,7 +283,11 @@ voice-ime/
 ### 风险登记
 
 - **重采样 CER**：已过 CER 对比（2.4% vs 基线 3.3%，不劣化），关。算法单测对照脚本 `tools/resample_cer.py` 留档。
-- **settings 热更**：壳启动时取一次 settings，改设置需重启壳（Python 语音服务同款行为）；P2 做热更。
+- **settings 热更（P2-① 已接）**：`voice_reload_settings` 命令在前端保存设置后触发
+  （api.ts settings_save/settings_reset 成功后 invoke），重新 load 写进共享
+  `Arc<Mutex<VoiceSettings>>`；编排循环每次**会话开始**取一次——改动在下一次语音会话生效
+  （会话中段换配置没有意义）。CDP 实测：命令 OK + 壳日志「设置已热更」。
+  喂送节流同步完成：固定 40ms 窗口，批大小不再随 IPC 速度漂移。
 - **~~纠错（LLM）暂不在 Rust 链路~~（P2-② 已接）**：壳在 asr_end→后处理后按 `model_correct` 调 IPC `correct`
   （applied=true 才采用修正文本，重新 normalize+final_check，与 pipeline.py 同序）；G32 守卫在 Python `correction.check` 内；
   LLM 冷启动由 Python warmup 预热（`correct 模型已热身`）。实测真实进程：预热 1832ms、推理 588ms、守卫拒绝返回原文。

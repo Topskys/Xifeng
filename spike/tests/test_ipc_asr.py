@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +21,8 @@ from voiceime_spike import asr, correction, ipc, vad
 from voiceime_spike.asr import AsrError
 from voiceime_spike.asr_runtime import AsrRuntime
 from voiceime_spike.store import Store
+
+SPIKE_DIR = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
@@ -453,6 +456,60 @@ def test_session_record_rejects_unknown_params(store: Store) -> None:
 
 
 # ---------------------------------------------------------------- stdout 红线
+
+
+def test_asr_feed_roundtrip_cost_budget(tmp_path: Path) -> None:
+    """asr_feed IPC 往返成本（真实子进程管道，逐条计时；G3 预算佐证）。
+
+    壳按 40ms 窗口攒批喂送：每批往返必须远小于窗口，否则追不上实时。
+    断言放宽到均值 <10ms——只抓回归（如 base64/JSON 路径劣化），不测极限。
+    真实数字打印出来留档（p50/p95）。
+    """
+    from time import perf_counter
+
+    n_batches = 20
+    batch = _pcm_bytes(0.04)  # 40ms @16k = 640 帧，与壳的窗口一致
+
+    proc = subprocess.Popen(
+        [sys.executable, "-X", "utf8", "run_spike.py", "--ipc",
+         "--db", str(tmp_path / "rtt.db")],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,   # 防 stderr 管道填满死锁
+        text=True, encoding="utf-8", cwd=str(SPIKE_DIR),
+    )
+    try:
+        assert proc.stdin is not None and proc.stdout is not None
+        first = proc.stdout.readline()
+        assert json.loads(first)["event"] == "ready"
+
+        def ask(msg: dict) -> dict:
+            proc.stdin.write(json.dumps(msg, ensure_ascii=False) + "\n")
+            proc.stdin.flush()
+            return json.loads(proc.stdout.readline())
+
+        ask({"id": 0, "method": "asr_begin", "params": {}})
+        samples: list[float] = []
+        for i in range(n_batches):
+            t0 = perf_counter()
+            resp = ask({"id": i + 1, "method": "asr_feed",
+                        "params": {"pcm_b64": _b64(batch)}})
+            samples.append((perf_counter() - t0) * 1000)
+            assert resp["ok"] is True
+            assert resp["result"]["frames"] == 640 * (i + 1)
+    finally:
+        try:
+            proc.stdin.close()  # type: ignore[union-attr]
+        except OSError:
+            pass
+        proc.wait(timeout=30)
+
+    samples.sort()
+    avg = sum(samples) / len(samples)
+    p50 = samples[len(samples) // 2]
+    p95 = samples[int(len(samples) * 0.95) - 1]
+    print(f"\nasr_feed 往返（{n_batches} 批 × 640 帧）：avg={avg:.2f}ms "
+          f"p50={p50:.2f}ms p95={p95:.2f}ms")
+    assert avg < 10.0, f"asr_feed 平均往返 {avg:.2f}ms > 10ms 预算"
 
 
 def test_asr_stream_stdout_is_pure_json(

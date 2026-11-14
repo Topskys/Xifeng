@@ -10,7 +10,7 @@ PyInstaller 打包交付。Rust 版推迟（决策见 `docs/00-process/plan.md` 
 # 全部命令在 spike/ 下执行（uv 管理环境，Python 3.11，镜像已配清华源）
 cd spike
 uv sync                                  # 首次/依赖变更后
-uv run pytest                            # 单测（286 个，约 25s；ptt 时序用例占 17s）
+uv run pytest                            # 单测（309 个，约 25s；ptt 时序用例占 17s）
 uv run python tools/build_ext.py --release # 编译 Rust 扩展（debug 比 numpy 慢，默认用 release）
 uv run python run_spike.py --help        # 手动跑一次
 uv run python bench.py --n 20            # 输出各阶段 P50/P95（自动判环境档位）
@@ -55,10 +55,17 @@ cargo build -p ime-py --release          # 只编译扩展，不装进 venv
 ## 架构
 
 ```
-hotkey(WH_KEYBOARD_LL) → 按需开麦(sounddevice, 16k i16) → asr(sherpa-onnx/SenseVoice)
-        └──────── pipeline: 状态机 + Trace ────────┘ → post(voiceime_rs) → inject(SendInput)
-        托盘/统计/配置/历史/关于 = Web GUI(127.0.0.1:8642 + Edge --app)
+Tauri 壳(Rust): hotkey(WH_KEYBOARD_LL) → voice(编排: cpal 按需开麦→SPSC 环形缓冲→喂送线程)
+        → asr IPC(SenseVoice, Python 运行时) → post(ime-post Rust) → inject(SendInput)
+        托盘/自启/浮窗(webview)/设置读取 都在壳里
+Python: 仅 ASR/纠错推理运行时（--ipc stdio NDJSON，asr_begin/feed/end/cancel）
 ```
+
+D16 后：触发链在壳里，**Python --ptt --tray 语音服务已退役**（spawn_voice_service 已删）；
+托盘两项（显示主界面/退出）、开机自启写注册表值 `VoiceIME`（HKCU\...\Run，指向壳 exe）、
+录音浮窗是 `?window=overlay` webview 页（`voice://level` 音量事件）。
+已知限制：改设置需重启壳生效；纠错（LLM）与统计/历史写入暂不在壳链路（P2）；
+G7 提权目标暂无用户可见提示（只落日志，P2 补反馈链）。
 
 Rust 以 PyO3 扩展（`voiceime_rs.pyd`）参与：`crates/ime-post` 放文本规则，`crates/ime-vad` 放 VAD 算法，`crates/ime-py` 只做
 Python 签名 ↔ Rust 的转接。Python 侧保留纯 Python 基准实现，两边必须逐字节等价。

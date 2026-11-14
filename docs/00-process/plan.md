@@ -241,6 +241,58 @@ voice-ime/
 
 ---
 
+## D16-P1 实施计划（2026-11-13/14，壳接管触发链）
+
+> 本节是 D16 的 G1/G2 工件：接口契约、文件清单、顺序、风险、证明方式。
+> **跨边界契约必须写在这里**（不活在对话/代码注释里），改契约先改本节。
+
+### 接口契约（跨边界）
+
+| 边界 | 契约 | 落点 |
+|---|---|---|
+| Rust 壳 ↔ Python 运行时 | `asr_begin{}` / `asr_feed{pcm_b64}`（16k 单声道 i16 LE base64，60s 上限，超出丢弃新数据）/ `asr_end{}` → `{text,chars,ms}`（**原始文本，不做后处理**）/ `asr_cancel{}` | `docs/03-core-concepts/ipc-contract.md`（P1a 已实现） |
+| Rust 注入模块 API（inject.rs，inject.py 等价移植） | `EXTRA_INFO_MAGIC: usize = 0x5649_4D45`；`snapshot_focus() -> Option<FocusSnapshot{hwnd,pid,class_name,elevated:Option<bool>,is_console}>`；`build_events(text) -> Vec<Event{Text(u16),Key(u16)}>`；`probe_focus_text(limit) -> Option<FocusText{length,text:Option}>`；`definitely_unchanged(before,after)`；`inject_ex(text, snap, cfg) -> InjectResult{outcome,strategy}`；`InjectStrategy::{Unicode,Clipboard,Auto}::parse` | `spike/frontend/src-tauri/src/inject.rs`（分支语义 MUST 逐条对齐 inject.py：G2/G3/G6/G7/G13/G20） |
+| Rust 钩子 API（hotkey.rs） | `Hook::start() -> Arc<Hook>`（失败返回 active=false 实例 + `error()` 码）；`pressed(vks)` / `drain_presses() -> Vec<u32>`（不漏极短敲击）/ `event_count()` / `injected_count()` / `stop()`；回调只忽略带 MAGIC 的自家注入（G20） | `spike/frontend/src-tauri/src/hotkey.rs` |
+| 壳 ↔ 浮窗页 | 浮窗 URL `index.html?window=overlay`；事件 `voice://level`（f32 RMS 0..1，~40ms 一发，仅录音中）；窗口生命周期由编排器 show/hide，页面无状态 | `voice.rs` ↔ `src/pages/Overlay.tsx` |
+| 壳 ↔ 前端（自启） | Tauri 环境自启走 Rust 命令 `autostart_cmd({enabled?:bool})`（HTTP 开发模式仍走 Python `autostart` 方法）；注册表值名统一 `VoiceIME`（HKCU\...\Run），目标=壳 exe，Python bootstrap 的 `autostart` 布尔读同一键 → 状态互通 | `autostart.rs` ↔ `api.ts` |
+| 托盘 | 两项：显示主界面 / 退出；主窗口 × = 隐藏到托盘不退出（`api.exit(0)` 才真正退，Exit 挂 `bridge.shutdown()`） | `tray.rs` |
+| 采集 | cpal 按设备**原生格式**开流，喂送线程下混+线性重采样 → 16k；音频回调只做「转 i16 → 拷进无锁 SPSC 环形缓冲（AtomicU16 游标）」，禁止 IO/锁/分配大对象；满则丢弃计数 | `voice.rs`（硬约束，同 Python 版） |
+
+### 时序语义（与 hotkey.py 逐条对齐）
+
+双击触发（单击 ≤300ms 松开 → 500ms 内再按并长按）→ `asr_begin` → 开麦 → 焦点快照 → 录音循环（Esc 取消 > 组合键整段丢弃 > 松开 > 60s 截断，轮询 10ms）→ 松手收 drain 120ms 尾音 → 关流 → 误触判定（<250ms 且非取消 → `asr_cancel`）→ `asr_end` → ime-post → 注入（auto 策略）。空文本/后处理判丢不注入；日志禁落识别全文。
+
+### 顺序与证明
+
+| 步骤 | 内容 | 证明 |
+|---|---|---|
+| P1a（已完成 afc3e2b） | IPC 运行时方法 | pytest 309 全绿 + core_smoke + e2e 脚本 |
+| P1b+P1c（已完成，本 commit） | hotkey.rs / voice.rs / inject.rs + main.rs 接线 | `cargo test` 13 单测零 warning ✓；便携壳 e2e（`tools/voice_e2e.py` 经 CDP 9334 驱动真实钩子）：双击触发 ✓ / 误触（hold<250ms 丢弃+asr_cancel）✓ / 正常会话（hold=749ms→asr_end in_frames=8481 ms=67→空文本不注入）✓ / 单击对照组不触发 ✓ / 注入 smoke（voice_test inject）outcome=Injected 且自家钩子零误触发（G20）✓ |
+| **延迟报数（G3，已完成）** | 各阶段耗时落日志：`会话完成：hold=…ms 松手→asr_end=…ms 后处理=…ms 注入=…ms`；asr 解码 67ms/0.53s 音频，松手→asr_end 22–68ms（+drain 120ms） | 实测对预算余量充足；`asr_feed` IPC 往返单测未做（喂送节流在 P2 一并做），登记为 P2 |
+| **重采样质量（G3，已完成）** | 16k 真人录音 → 高质量上采 48k（模拟 WASAPI 原生流）→ Rust Resampler 等价线性插值降采 16k | 基线 CER 3.3%（正确 3/5） vs 重采样路径 **CER 2.4%（正确 4/5）**，不劣化，合格（`tools/resample_cer.py` 可复现） |
+| P1d（已完成，本 commit） | tray.rs / autostart.rs / Overlay.tsx / withGlobalTauri / 退役 spawn_voice_service | 前端 build ✓；便携壳实测：托盘两项 / 自启写键（值名 VoiceIME 指向壳 exe，与 Python 状态互通）/ 浮窗 webview（黑 Mic 图标）show-hide ✓ |
+| 合并前（已完成） | 独立上下文复审（新会话只给 diff + 本节 + review 清单，21 项逐条核） | 复审结论：inject.rs/hotkey/voice 语义对齐全部通过；**阻断项 1（用户设置被默认值覆盖）已修**（post_cfg/inject_cfg 传入 process/inject_ex）；建议项已处理：环容量按原生率×声道重算 ✓、dropped/流错误计数接出日志 ✓、未知注入策略边界显式报错 ✓、autostart_cmd 统一 {ok,error} ✓、编排线程 spawn 失败降级不 panic ✓、AGENTS.md 口径更新 ✓；其余登记见风险节 |
+
+### 复审裁决记录（存疑项定夺）
+
+- **部分成功 SendInput 报成功**：与 Python 基线行为一致（inject.py:556-557 同款），非回归，保持现状。
+- **G7 提权目标无 UI 反馈**：与统计/历史停更同属 P2 反馈链缺口，记已知限制。
+- **voice://level 节奏**：契约改为「喂送循环每轮一发（仅录音中）」，与实现一致；固定 40ms 节流随 P2 喂送节流做。
+- **未知注入策略**：settings 边界显式 ERROR 日志 + 按 auto 继续（宁可功能可用，错误显眼；不做静默）。
+
+### 风险登记
+
+- **重采样 CER**：已过 CER 对比（2.4% vs 基线 3.3%，不劣化），关。算法单测对照脚本 `tools/resample_cer.py` 留档。
+- **settings 热更**：壳启动时取一次 settings，改设置需重启壳（Python 语音服务同款行为）；P2 做热更。
+- **纠错（LLM）暂不在 Rust 链路**：asr_end 返回原文后直接后处理，`model_correct` 设置在壳路径不生效 → 已知限制，P2 补（走 IPC correct + G32 守卫在 Python 侧）。
+- **统计/历史断档**：注入成功不再写 Python store → 统计页数字停更；P2 接 rusqlite 或 IPC 记账（voice.rs 留 TODO(P1d)）。
+- **钩子装不上**（Low 完整性目录/安全软件）：壳降级为"窗口可用无语音"并打日志（G21/G24），安装器产物在仓库外构建规避。
+- **G7 提权目标无 UI 反馈**：只有 stderr 日志（ElevatedTarget），用户看不到 → P2 反馈链补（与统计断档一起）。
+- **voice_test 后门**（tap/down/up/inject）进了 release 产物：只接受 CDP/前端显式调用、合成按键与注入都带语义安全（tap 不带 MAGIC 需真实钩子、inject 打当前焦点），风险可接受；P2 做 debug 门控。
+- **老自启键迁移**：Python 时代写的 `VoiceIME` 注册表值指向已退役 sidecar，升级用户首次点「开启自启」才会覆写为壳 exe → P2 首启检测迁移。
+
+---
+
 ## 验证命令（一条命令原则）
 
 ```bash

@@ -1,18 +1,24 @@
-//! VoiceIME 桌面壳：Tauri 窗口 + Python 核心子进程。
+//! VoiceIME 桌面壳：Tauri 窗口 + 热键/采集/注入（D16）+ Python 模型运行时。
 //!
-//! 职责边界：
-//! - 壳只做「窗口 + 进程 + 转发」，业务逻辑全在 Python 核里；
-//! - 前端只认一个 command：`py_call(method, params)`，参数与方法表见
-//!   `docs/03-core-concepts/ipc-contract.md`，与 HTTP 路由一一对应。
+//! 职责边界（D16 迁移后）：
+//! - 壳（Rust）：热键钩子、cpal 采集、ime-post 后处理、SendInput 注入、
+//!   窗口与托盘（P1d）；语音编排见 `voice.rs`；
+//! - Python 核：ASR/纠错推理，经 IPC（`py_call` / `asr_begin|feed|end|cancel`），
+//!   方法表见 `docs/03-core-concepts/ipc-contract.md`。
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod autostart;
+mod hotkey;
+mod inject;
 mod py;
+mod tray;
+mod voice;
 
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
-use tauri::{RunEvent, State};
+use tauri::{RunEvent, State, WebviewUrl, WebviewWindowBuilder};
 
 use py::PythonBridge;
 
@@ -72,31 +78,167 @@ fn close(window: tauri::Window) -> Result<(), String> {
     window.close().map_err(|e| e.to_string())
 }
 
+/// 合成按键驱动 e2e（仅沙箱验证用）：给真实钩子喂 Ctrl 按下/松开。
+///
+/// - `tap`：单击一次（按下→150ms→松开，作为双击的第一击）
+/// - `down`/`up`：按住/松开（双击的第二击长按用 CDP 时序自己控制）
+/// 事件走真实 WH_KEYBOARD_LL 链路（SendInput 不带 MAGIC），验得完整。
+#[tauri::command]
+async fn voice_test(mode: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || match mode.as_str() {
+        "tap" => {
+            voice::send_ctrl(true);
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            voice::send_ctrl(false);
+            Ok(())
+        }
+        "down" => {
+            voice::send_ctrl(true);
+            Ok(())
+        }
+        "up" => {
+            voice::send_ctrl(false);
+            Ok(())
+        }
+        // 注入 smoke：把固定文本打到当前焦点（e2e 里焦点=壳自己的 webview）。
+        // 同时验证 G20：注入事件带 MAGIC，自家钩子不把它当用户按键。
+        "inject" => {
+            let res = voice::test_inject("测试注入 e2e");
+            eprintln!(
+                "[voice] inject smoke：outcome={} strategy={}",
+                res.outcome.as_str(),
+                res.strategy
+            );
+            Ok(())
+        }
+        m => Err(format!("未知 voice_test 模式：{m}（tap|down|up|inject）")),
+    })
+    .await
+    .map_err(|e| format!("voice_test 异常：{e}"))?
+}
+
+/// 录音浮窗：屏幕底部居中的小胶囊（360×60 逻辑像素），前端按
+/// `?window=overlay` 渲染精简页（音量条），录音会话中由编排器 show/hide。
+fn build_overlay(app: &tauri::AppHandle) -> Result<(), String> {
+    // 位置：主显示器底部居中（Win10/11 任务栏上方）
+    let (x, y) = match app.primary_monitor().ok().flatten() {
+        Some(m) => {
+            let scale = m.scale_factor();
+            let w = m.size().width as f64 / scale;
+            let h = m.size().height as f64 / scale;
+            ((w - 360.0) / 2.0, h - 130.0)
+        }
+        None => (200.0, 600.0),
+    };
+
+    WebviewWindowBuilder::new(
+        app,
+        "overlay",
+        WebviewUrl::App("index.html?window=overlay".into()),
+    )
+    .title("VoiceIME 录音")
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .focused(false)
+    .visible(false)
+    .inner_size(360.0, 60.0)
+    .position(x, y)
+    .build()
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn main() {
+    // WebView2 数据目录 = exe 同级 EBWebView（便携：数据跟程序走）。
+    // MUST 显式设置：默认目录（%LOCALAPPDATA%\com.voiceime.app）在本机被
+    // 系统 webview 实例抢锁，创建报 0x800700AA（资源占用）；实测
+    // AppData\Local 全部路径均失败、exe 同级成功（实验 A-D，2026-11-14）。
+    let ud = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("EBWebView")))
+        .unwrap_or_else(|| std::path::PathBuf::from("EBWebView"));
+    if let Some(parent) = ud.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &ud);
+
     let bridge = Arc::new(PythonBridge::new());
+    let hook = hotkey::Hook::start();
 
     let app = tauri::Builder::default()
         .manage(Arc::clone(&bridge))
+        .manage(Arc::clone(&hook))
         .invoke_handler(tauri::generate_handler![
             py_call,
+            voice_test,
+            autostart::autostart_cmd,
             start_dragging,
             minimize,
             toggle_maximize,
             is_maximized,
             close
         ])
+        // 主窗口 × 不退出：隐藏到托盘（语音触发链要常驻后台）
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
+            }
+        })
         .setup({
             let bridge = Arc::clone(&bridge);
+            let hook = Arc::clone(&hook);
             move |app| {
                 // 同步等 ready：前端第一步就是 bootstrap，核没起来它也没法干活。
                 // 失败不 panic——窗口照样开，前端会从 py_call 的错误里看到原因。
                 if let Err(e) = bridge.start(app.handle().clone()) {
                     eprintln!("[shell] Python 核启动失败：{e}");
                 }
-                // 语音服务（热键钩子/托盘/浮窗/注入）是独立常驻进程：
-                // --ipc 核心不装钩子，触发链在这里补上（幂等，Mutex 防双开）。
-                if let Err(e) = py::spawn_voice_service() {
-                    eprintln!("[shell] {e}");
+                // 录音浮窗（D16：webview 浮窗，Tk 截图模糊方案退役）：
+                // 无边框、透明、置顶、不进任务栏，初始隐藏，录音会话中 show/hide。
+                // 延后创建：setup 阶段连建两个 WebView2 会撞 0x800700AA（资源占用，
+                // 环境未初始化完），等主窗口环境就绪后再建（Tauri 已知问题）。
+                {
+                    let app = app.handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(600));
+                        let _ = app.run_on_main_thread({
+                            let app = app.clone();
+                            move || {
+                                if let Err(e) = build_overlay(&app) {
+                                    eprintln!("[shell] 浮窗创建失败：{e}");
+                                }
+                            }
+                        });
+                    });
+                }
+                // 托盘两项：显示主界面 / 退出（D16 P1d，用户决策）
+                if let Err(e) = tray::install(app.handle()) {
+                    eprintln!("[shell] 托盘安装失败：{e}");
+                }
+                // D16 P1b：热键采集与语音编排迁入壳。**不再拉起 Python
+                // --ptt --tray 语音服务**——两个钩子会双重触发、双重注入。
+                if hook.active() {
+                    let app = app.handle().clone();
+                    let hook = std::clone::Clone::clone(&hook); // 编排线程一份，else 分支还要用
+                    let spawned = std::thread::Builder::new()
+                        .name("voice-orchestrator".into())
+                        .spawn(move || voice::run(bridge, hook, app));
+                    if let Err(e) = spawned {
+                        // 降级不 panic：窗口/托盘仍可用，只是语音不可用
+                        eprintln!("[shell] 起语音编排线程失败：{e}（语音功能不可用）");
+                    }
+                } else {
+                    eprintln!(
+                        "[shell] 键盘钩子装不上（error={}），语音功能不可用；\
+                         需管理员/安全软件排查（G21/G24）",
+                        hook.error()
+                    );
                 }
                 Ok(())
             }

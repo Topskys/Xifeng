@@ -7,6 +7,7 @@ import { WindowTopBar } from "@/components/title-bar"
 import { AboutPage } from "@/pages/About"
 import { ConfigPage } from "@/pages/Config"
 import { ModelsPage } from "@/pages/Models"
+import { OverlayPage } from "@/pages/Overlay"
 import { StatsPage } from "@/pages/Stats"
 import { Button } from "@/components/ui/button"
 
@@ -32,6 +33,11 @@ function pageFromHash(): PageKey {
 }
 
 export default function App() {
+  // 浮窗模式：独立精简页（录音提示条），无顶条/侧栏，背景透明
+  if (new URLSearchParams(window.location.search).get("window") === "overlay") {
+    return <OverlayPage />
+  }
+
   const [boot, setBoot] = useState<Bootstrap | null>(null)
   const [page, setPage] = useState<PageKey>(pageFromHash)
   const [toast, setToast] = useState<Toast | null>(null)

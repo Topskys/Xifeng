@@ -201,7 +201,14 @@ function unwrapIpc<T>(value: unknown): T {
 async function call<T>(path: string, params: Record<string, unknown> = {}): Promise<T> {
   const route = ROUTES[path]
   if (!route) throw new Error(`未登记的端点：${path}`)
-  if (invoke) return unwrapIpc<T>(await invoke("py_call", { method: route.method, params }))
+  if (invoke) {
+    // D16：自启归壳管（注册表目标必须是壳 exe），Tauri 环境走 Rust 命令；
+    // 浏览器（HTTP 开发模式）仍走 Python autostart 方法
+    if (path === "/api/autostart") {
+      return unwrapIpc<T>(await invoke("autostart_cmd", params))
+    }
+    return unwrapIpc<T>(await invoke("py_call", { method: route.method, params }))
+  }
   return httpCall<T>(path, route.verb, params)
 }
 

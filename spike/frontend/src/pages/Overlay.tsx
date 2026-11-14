@@ -33,12 +33,24 @@ function blend(a: string, b: string, t: number): string {
   return "#" + c.map((x) => x.toString(16).padStart(2, "0")).join("")
 }
 
+/** 预览用合成电平：词组起伏（说-停-说）× 音节快抖，肉眼就是正常说话。 */
+function demoLevel(t: number): number {
+  const phrase = Math.max(0, Math.sin(t * 1.1))
+  const syllable = 0.55 + 0.45 * Math.sin(t * 9.0)
+  return Math.min(1, phrase * syllable * 1.2)
+}
+
 export function OverlayPage() {
   const barsRef = useRef<(HTMLDivElement | null)[]>([])
   const levelRef = useRef(0)
   const peakRef = useRef(0)
   const histRef = useRef(new Float32Array(BARS))
   const startRef = useRef(performance.now())
+  // 样式预览：?window=overlay&demo=1 时用合成电平序列代替真实麦克风事件
+  // （调样式不用真说话；正式路径完全不受影响）
+  const demoRef = useRef(
+    new URLSearchParams(window.location.search).get("demo") === "1",
+  )
 
   useEffect(() => {
     // 浮窗要透出桌面：页面背景必须透明
@@ -72,6 +84,9 @@ export function OverlayPage() {
     // 不过 React 重渲染 —— 音柱每帧都在动，ref 更新最省。
     const hist = histRef.current
     const timer = window.setInterval(() => {
+      if (demoRef.current) {
+        levelRef.current = demoLevel((performance.now() - startRef.current) / 1000)
+      }
       // 旧 _read_level 同参：RMS×6 拉进可视区间 + 慢峰值衰减（柱子不乱跳）
       const level = Math.min(1, levelRef.current * 6)
       peakRef.current = Math.max(level, peakRef.current * 0.85)
@@ -79,7 +94,7 @@ export function OverlayPage() {
       hist[BARS - 1] = peakRef.current
       // 安静时给一点匀速呼吸，避免「卡住了」的错觉（旧 _draw_bars 同式）
       const breath = 0.1 + 0.06 * Math.sin((performance.now() - startRef.current) * 4.2)
-      const maxHalf = 14 // 胶囊高 36px 的半高 - 4px 边距（旧 WAVE_CY - 4 同式）
+      const maxHalf = 12 // 旧 WAVE_CY - 4：32px 高的条，柱子最长 27px
       for (let i = 0; i < BARS; i++) {
         const el = barsRef.current[i]
         if (!el) continue
@@ -98,10 +113,12 @@ export function OverlayPage() {
 
   return (
     <div className="flex h-full items-center justify-center">
-      <div className="flex h-9 items-center gap-2.5 rounded-full border border-[#26262a] bg-[#111113]/70 px-3 shadow-2xl backdrop-blur-sm">
+      {/* 旧 popup 几何：300×32 条、圆角 10、PAD 5、图标 22、图标→音柱 10。
+          胶囊 MUST 定宽——不定宽 flex-1 会塌成内容宽，音柱挤成一坨 */}
+      <div className="flex h-8 w-[300px] items-center gap-2.5 rounded-[10px] border border-[#26262a] bg-[#111113]/[.67] px-[5px] backdrop-blur-sm">
         {/* 黑色图标（用户指定）：白麦克风保持可辨，动效全部交给右侧音柱 */}
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-black">
-          <Mic className="size-3.5 text-white" />
+        <span className="flex size-[22px] shrink-0 items-center justify-center rounded-[5px] bg-black">
+          <Mic className="size-3 text-white" />
         </span>
         <div className="flex h-full flex-1 items-center justify-between">
           {Array.from({ length: BARS }, (_, i) => (

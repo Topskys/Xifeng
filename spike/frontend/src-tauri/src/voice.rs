@@ -279,11 +279,30 @@ fn spawn_feeder(
             if resampled.is_empty() {
                 continue;
             }
-            // 音量指示：这批 16k 单声道的 RMS（0..1）。只在录音中发。
+            // 音量指示：只在录音中发。10ms 子窗 RMS 取最大——旧 popup 的
+            // last_chunk 是 ~10ms 回调块，音节尖峰直接顶满；对整批 40ms 求
+            // 均值会被音节空隙抹平，柱子动幅明显变小（用户实测反馈）。
             if collecting.load(Ordering::SeqCst) {
-                let acc: f64 = resampled.iter().map(|s| (*s as f64) * (*s as f64)).sum();
-                let rms = (acc / resampled.len() as f64).sqrt() / 32767.0;
-                let _ = app.emit("voice://level", rms.min(1.0));
+                const WIN: usize = 160; // 16k × 10ms
+                let n = resampled.len();
+                let mut peak = 0.0f64;
+                let mut start = 0usize;
+                while start < n {
+                    let end = (start + WIN).min(n);
+                    let acc: f64 = resampled[start..end]
+                        .iter()
+                        .map(|s| { let v = *s as f64; v * v })
+                        .sum();
+                    let r = (acc / (end - start) as f64).sqrt() / 32767.0;
+                    if r > peak {
+                        peak = r;
+                    }
+                    if end == n {
+                        break;
+                    }
+                    start = end;
+                }
+                let _ = app.emit("voice://level", peak.min(1.0));
             }
             let mut bytes = Vec::with_capacity(resampled.len() * 2);
             for s in &resampled {

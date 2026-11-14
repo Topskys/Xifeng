@@ -152,8 +152,10 @@ async fn voice_test(mode: String) -> Result<(), String> {
     Err("voice_test 仅在 debug 或 e2e 构建可用（正式安装器不带此命令）".into())
 }
 
-/// 录音浮窗：屏幕底部居中的小胶囊（360×60 逻辑像素），前端按
+/// 录音浮窗：屏幕底部居中的小胶囊（304×36 逻辑像素），前端按
 /// `?window=overlay` 渲染精简页（音量条），录音会话中由编排器 show/hide。
+/// 窗口 MUST 只比胶囊（300×32）大 2px 余量——旧 360×60 四周留白一圈，
+/// 用户明确要求「保留胶囊区域即可」；shadow(false) 去掉系统边框/阴影。
 fn build_overlay(app: &tauri::AppHandle) -> Result<(), String> {
     // 位置：主显示器底部居中（Win10/11 任务栏上方）
     let (x, y) = match app.primary_monitor().ok().flatten() {
@@ -161,7 +163,7 @@ fn build_overlay(app: &tauri::AppHandle) -> Result<(), String> {
             let scale = m.scale_factor();
             let w = m.size().width as f64 / scale;
             let h = m.size().height as f64 / scale;
-            ((w - 360.0) / 2.0, h - 130.0)
+            ((w - 304.0) / 2.0, h - 130.0)
         }
         None => (200.0, 600.0),
     };
@@ -174,6 +176,7 @@ fn build_overlay(app: &tauri::AppHandle) -> Result<(), String> {
     .title("VoiceIME 录音")
     .decorations(false)
     .transparent(true)
+    .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)
     .resizable(false)
@@ -182,7 +185,7 @@ fn build_overlay(app: &tauri::AppHandle) -> Result<(), String> {
     // 不加这个 show 可能激活窗口、抢走目标应用焦点 → 注入校验恒失败。
     .focusable(false)
     .visible(false)
-    .inner_size(360.0, 60.0)
+    .inner_size(304.0, 36.0)
     .position(x, y)
     .build()
     .map_err(|e| e.to_string())?;

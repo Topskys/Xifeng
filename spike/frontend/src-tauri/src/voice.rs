@@ -380,6 +380,8 @@ pub struct VoiceSettings {
     pub inject_cfg: InjectConfig,
     pub post_cfg: ime_post::PostConfig,
     pub model_correct: bool,
+    /// 浮窗主题（dark | light）：会话开始经 `voice://theme` 广播给浮窗页
+    pub theme: String,
 }
 
 impl VoiceSettings {
@@ -451,7 +453,23 @@ impl VoiceSettings {
             .and_then(|s| s.get("model_correct"))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        Self { vks: key.vks().to_vec(), inject_cfg, post_cfg, model_correct }
+        // 浮窗主题（与主界面同一设置项；非法值显式喊出来并兜底 dark）
+        let theme_raw = settings
+            .as_ref()
+            .and_then(|s| s.get("theme"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("dark")
+            .trim()
+            .to_ascii_lowercase();
+        let theme = if theme_raw == "light" {
+            "light".to_string()
+        } else {
+            if theme_raw != "dark" {
+                eprintln!("[voice] ⚠ 设置里的主题「{theme_raw}」不是 dark/light，按 dark 处理");
+            }
+            "dark".to_string()
+        };
+        Self { vks: key.vks().to_vec(), inject_cfg, post_cfg, model_correct, theme }
     }
 }
 
@@ -481,15 +499,25 @@ pub fn run(
     }
     loop {
         // 每次会话开始取一次设置：热更在会话边界生效
-        let (vks, inject_cfg, post_cfg, model_correct) = {
+        let (vks, inject_cfg, post_cfg, model_correct, theme) = {
             let s = cfg.lock().unwrap();
-            (s.vks.clone(), s.inject_cfg.clone(), s.post_cfg.clone(), s.model_correct)
+            (s.vks.clone(), s.inject_cfg.clone(), s.post_cfg.clone(), s.model_correct, s.theme.clone())
         };
         if !wait_for_double_tap(&hook, &vks) {
             return;
         }
+        // 浮窗先弹（纯 UI）：asr_begin（IPC 往返）和开麦静默期（95-376ms）原本
+        // 都排在 show 之前，体感是「双击了没反应」。show 不抢焦点
+        // （WS_EX_NOACTIVATE，见 main.rs），不会污染稍后的焦点快照。
+        if let Some(w) = app.get_webview_window("overlay") {
+            let _ = app.emit("voice://theme", theme.as_str());
+            let _ = w.show();
+        }
         if let Err(e) = bridge.call("asr_begin", serde_json::json!({})) {
             eprintln!("[voice] asr_begin 失败：{e}");
+            if let Some(w) = app.get_webview_window("overlay") {
+                let _ = w.hide();
+            }
             std::thread::sleep(Duration::from_secs(1)); // 核暂时不可用：缓一拍再等按键
             continue;
         }
@@ -500,16 +528,15 @@ pub fn run(
         let mut mic = new_mic();
         if let Err(e) = mic.start() {
             eprintln!("[voice] {e}");
+            if let Some(w) = app.get_webview_window("overlay") {
+                let _ = w.hide();
+            }
             let _ = bridge.call("asr_cancel", serde_json::json!({}));
             std::thread::sleep(Duration::from_millis(500));
             continue;
         }
         let _ = hook.drain_presses(); // combo_base（会话开始前的新按键不算组合）
         mic.begin(&bridge, &app);
-        // 浮窗：录音开始时弹出（位置在创建时定好，屏幕底部居中）
-        if let Some(w) = app.get_webview_window("overlay") {
-            let _ = w.show();
-        }
         let t0 = Instant::now();
 
         // 录音循环：Esc 取消 > 组合键 > 松开 > 超时（与 record_ptt 同序）

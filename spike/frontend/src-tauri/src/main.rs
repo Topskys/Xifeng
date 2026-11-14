@@ -23,17 +23,22 @@ use tauri::{Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder};
 use py::PythonBridge;
 
 /// 设置热更（P2-①）：前端保存设置后调用，重新从核心读 settings。
-/// 改动在**下一次语音会话开始**生效（会话中段换配置没有意义）。
+/// 改动在**下一次语音会话开始**生效（会话中段换配置没有意义）；
+/// 唯一的例外是主题：这里立即广播 `voice://theme`，浮窗随主界面同拍切换。
 #[tauri::command]
 async fn voice_reload_settings(
     bridge: State<'_, Arc<PythonBridge>>,
     cfg: State<'_, Arc<Mutex<voice::VoiceSettings>>>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let bridge = Arc::clone(bridge.inner());
     let cfg = Arc::clone(cfg.inner());
     tauri::async_runtime::spawn_blocking(move || {
-        *cfg.lock().unwrap() = voice::VoiceSettings::load(&bridge);
-        eprintln!("[shell] 设置已热更（下一次语音会话生效）");
+        let settings = voice::VoiceSettings::load(&bridge);
+        use tauri::Emitter;
+        let _ = app.emit("voice://theme", settings.theme.as_str());
+        *cfg.lock().unwrap() = settings;
+        eprintln!("[shell] 设置已热更（下一次语音会话生效；主题已即时广播）");
     })
     .await
     .map_err(|e| format!("设置热更异常：{e}"))?;
@@ -173,6 +178,9 @@ fn build_overlay(app: &tauri::AppHandle) -> Result<(), String> {
     .skip_taskbar(true)
     .resizable(false)
     .focused(false)
+    // MUST：WS_EX_NOACTIVATE。会话开始时浮窗在焦点快照**之前** show（消延迟），
+    // 不加这个 show 可能激活窗口、抢走目标应用焦点 → 注入校验恒失败。
+    .focusable(false)
     .visible(false)
     .inner_size(360.0, 60.0)
     .position(x, y)

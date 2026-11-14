@@ -55,10 +55,10 @@
 | `check_update` | — | `{latest, current, update}` 或 `{error}` |
 | `shutdown` | — | `{ok: true}`，随后进程退出 |
 
-### D16 运行时方法（2026-11-13 追加）
+### D16 运行时方法（2026-11-13 追加；correct/session_record 为 2026-11-14 P2 追加）
 
-Rust 壳接管热键/采集/注入/后处理后（决策 D16，docs/00-process/plan.md），
-Python 核心退化为模型运行时，追加以下 4 个方法。它们**不经过 `webgui.Api`**，
+Rust 壳接管热键/采集/注入后（决策 D16，docs/00-process/plan.md），
+Python 核心退化为模型运行时。它们**不经过 `webgui.Api`**，
 由 `voiceime_spike/asr_runtime.py` 的 `AsrRuntime` 实现；模型延迟加载 + 常驻，
 `ready` 之后由后台线程 warmup（绝不阻塞 ready 与协议主循环），
 首次 `asr_begin` 一般不再等 2~4s 冷启动。
@@ -69,12 +69,16 @@ Python 核心退化为模型运行时，追加以下 4 个方法。它们**不�
 | `asr_feed` | `{"pcm_b64": "..."}` | `{frames: n}`。追加 16kHz 单声道 **i16 LE 裸字节**（base64 编码，容忍换行）；返回累计帧数（=已接受字节数/2）。缓冲上限 60s（约 960000 帧），超出丢弃新数据并计一次警告日志 |
 | `asr_end` | `{}` | `{text, chars, ms}`。对缓冲做与 ptt_loop 相同的静音裁剪/VAD + ASR 解码；**返回原始输出，未经 postprocess**（空串合法）；`ms`=解码耗时；返回后清空缓冲 |
 | `asr_cancel` | `{}` | `{}`。丢弃缓冲（Esc 取消本次） |
+| `correct` | `{"text": "..."}` | `{applied, text, fixes, reason, ms}`。本地 LLM 纠错（`model_correct` 开关在壳侧判断，Python 侧总可用）；**G32 守卫在 `correction.check` 内**——`applied=false` 即拒绝，`text` 恒为原文，壳只在 `applied=true` 时采用；首调用付模型加载（失败粘性，绝不逐句重试）；持 `_load_lock` 与 ASR 解码互斥 |
+| `session_record` | Trace 字段的壳侧子集：`{outcome, chars, e2e_ms, ms_asr, ms_post, ms_inject, speech_ms, strategy, fixes, error, text, raw_text, clean_text}`（全部可省略） | `{id}`。写一条历史（mode=ptt）；`store_text` 关闭时文本不落库（开关在 `add_history` 内生效）；数据库/参数问题绝不抛出——返回 `{"id": -1}`，不影响已完成的注入 |
 
 约束：
 
 - 裁剪/VAD 配置来自用户设置与命令行（`--trim`/`--vad` 语义不变）；
-  `model_correct` / 注入策略等与推理无关的配置在此路径忽略
-- ASR 加载/推理失败（`AsrError`）→ `ok=false` + 简短 error，不崩进程
+  注入策略等与推理无关的配置在此路径忽略（`model_correct` 除外——它决定
+  warmup 是否预热 LLM 与 `correct` 是否可用）
+- ASR 加载/推理失败（`AsrError`）→ `ok=false` + 简短 error，不崩进程；
+  纠错失败/守卫拒绝**不是**错误：`correct` 恒 `ok=true`，看 `applied`
 - 日志只记长度与耗时，**禁止记录识别文本全文**（仓库硬约束）
 - `asr_feed` 的 pcm 必须是偶数字节长度；奇数长度/非法 base64 → `ok=false`
 

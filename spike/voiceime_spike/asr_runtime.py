@@ -1,18 +1,21 @@
 """D16 推理运行时：IPC 侧的「缓冲 + 裁剪 + ASR 解码」。
 
 Rust 壳接管采集/注入/后处理后（决策 D16，docs/00-process/plan.md），
-Python 核心只暴露四个推理方法（契约见 docs/03-core-concepts/ipc-contract.md）：
+Python 核心只暴露推理与记账方法（契约见 docs/03-core-concepts/ipc-contract.md）：
 
-    asr_begin   清空缓冲，确保模型已加载（首次调用会加载，2~4s，调用方容忍 30s）
-    asr_feed    追加 16kHz 单声道 i16 LE 裸字节（base64），返回累计帧数
-    asr_end     静音裁剪/VAD + ASR 解码，返回原始文本（未经 postprocess）
-    asr_cancel  丢弃缓冲（Esc 取消本次）
+    asr_begin        清空缓冲，确保模型已加载（首次调用会加载，2~4s，调用方容忍 30s）
+    asr_feed         追加 16kHz 单声道 i16 LE 裸字节（base64），返回累计帧数
+    asr_end          静音裁剪/VAD + ASR 解码，返回原始文本（未经 postprocess）
+    asr_cancel       丢弃缓冲（Esc 取消本次）
+    correct          本地 LLM 纠错一句文本（G32 守卫在 correction.check 内）
+    session_record   把一次会话写进历史库（store_text 开关在 add_history 内生效）
 
 设计要点：
 - 模型延迟加载 + 常驻：`serve()` 发出 ready 后由后台线程跑 `warmup()`，
   绝不阻塞协议主循环；首次 `asr_begin` 一般已不用等冷启动（G8）
 - 缓冲只在 IPC 主循环（单线程顺序处理）里访问，无需加锁；唯一的并发点是
-  模型加载/解码 vs warmup 线程，统一用 `_load_lock` 串行化
+  模型加载/解码 vs warmup 线程，统一用 `_load_lock` 串行化（ASR 与 LLM 都在
+  这把锁下：recognizer 不保证线程安全，llama.cpp 同理）
 - 裁剪/VAD/解码复用现有代码（`pipeline.prepare_pcm` + `asr.transcribe`），
   与 ptt_loop 路径逐字节同源，这里不重写任何算法
 - end 返回的是 ASR 原始输出；后处理与注入由 Rust 壳负责
@@ -26,11 +29,16 @@ import binascii
 import sys
 import threading
 import time
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from . import asr, vad as vadlib
+from . import asr, correction, vad as vadlib
 from .pipeline import prepare_pcm
+from .trace import Outcome, Trace
+
+if TYPE_CHECKING:
+    from .store import Store
 
 SAMPLE_RATE = 16000
 MAX_SECONDS = 60
@@ -44,6 +52,13 @@ def _log(msg: str) -> None:
         print(f"[asr-runtime] {msg}", file=sys.stderr, flush=True)
     except Exception:  # noqa: BLE001 - stderr 不可写时也不能影响协议
         pass
+
+
+def _as_int(value: object, key: str) -> int:
+    """session_record 的整数参数：类型不对要显式报错，不靠 int() 猜。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"session_record.{key} 必须是整数")
+    return int(value)
 
 
 class AsrRuntime:
@@ -67,6 +82,8 @@ class AsrRuntime:
         vad_cfg: vadlib.VadConfig | None = None,
         trim_cfg: vadlib.TrimConfig | None = None,
         autostart_warmup: bool = True,
+        model_correct: bool = False,
+        store: Store | None = None,
     ) -> None:
         self.sample_rate = sample_rate
         self.backend = backend
@@ -80,12 +97,18 @@ class AsrRuntime:
         self.trim_cfg = trim_cfg or vadlib.TrimConfig()
         #: serve() 是否在 ready 后自动起 warmup 线程（测试/懒加载路径可关）
         self.autostart_warmup = autostart_warmup
+        #: 用户设置「本地模型纠错」：warmup 预热 LLM，correct 时零冷启动（G32 守卫在 correction 内）
+        self.model_correct = model_correct
+        #: 历史库（--no-db 时是 :memory: 实例，永远非 None；None 只出现在测试直构）
+        self._store = store
 
         self._buf: list[np.ndarray] = []
         self._frames = 0
         self._overflow_warned = False
         self._load_lock = threading.Lock()
         self._loaded = False
+        # 纠错模型的就绪标记：加载失败是粘性的，绝不逐句重试（pipeline 同款语义）
+        self._correct_ready = False
         self._vad: vadlib.SileroVad | None = None
         self._vad_ready = False
         # warmup 线程：shutdown 时主循环会 join 它再退出，
@@ -133,7 +156,11 @@ class AsrRuntime:
                 asr.warmup()
                 if self.use_vad:
                     self._ensure_vad()
-            _log(f"warmup 完成 backend={asr.backend()}")
+                if self.model_correct:
+                    # LLM 冷启动同样付在启动阶段；失败只警告，correct 时按原文放行
+                    self._ensure_correction_locked()
+            suffix = f" + {correction.describe()}" if self.model_correct else ""
+            _log(f"warmup 完成 backend={asr.backend()}{suffix}")
         except Exception as exc:  # noqa: BLE001 - 后台线程绝不带崩进程
             _log(f"⚠ warmup 失败（懒加载兜底，首次 asr_begin 会重试）：{type(exc).__name__}: {exc}")
 
@@ -161,6 +188,22 @@ class AsrRuntime:
         if not self._vad_ready:
             self._vad = vadlib.load_vad()
             self._vad_ready = True
+
+    def _ensure_correction_locked(self) -> None:
+        """加载 + 热身纠错模型（调用方必须已持有 `_load_lock`）。幂等。
+
+        加载失败是粘性的：置 `_correct_ready` 后不再逐句重试，
+        `correction.correct` 对未加载状态会按 unavailable 返回原文（G32）。
+        """
+        if self._correct_ready or correction.loaded():
+            self._correct_ready = True
+            return
+        if correction.load(threads=self.threads):
+            ms = correction.warmup()
+            _log(f"correct 模型已热身（{ms}ms）")
+        else:
+            _log(f"⚠ correct 模型不可用：{correction.last_error()}（按原文注入）")
+        self._correct_ready = True
 
     # ------------------------------------------------------------ 协议方法
 
@@ -233,6 +276,81 @@ class AsrRuntime:
         """`asr_cancel` params={} → {}：丢弃缓冲（Esc 取消本次）。"""
         self._take()
         return {}
+
+    def correct(self, text: str) -> dict:
+        """`correct` params={text} → {applied, text, fixes, reason, ms}。
+
+        本地 LLM 纠错一句文本。守卫（删词/大改/解释性输出）在
+        `correction.check` 内实现，`applied=False` 即拒绝——壳只需看
+        `applied` 才采用 `text`，其余情况 `text` 恒为原文。首调用先付
+        模型加载（warmup 线程已预热时是空操作）；持 `_load_lock` 与
+        ASR 解码互斥（llama.cpp 不保证并发安全）。
+        """
+        if not isinstance(text, str):
+            raise ValueError("correct.text 必须是字符串")
+        with self._load_lock:
+            self._ensure_correction_locked()
+            result = correction.correct(text)
+        if result.applied:
+            # 硬约束：日志只记长度，禁止出现文本
+            _log(f"correct 采纳 fixes={result.fixes} in={len(text)} out={len(result.text)} ms={result.ms}")
+        else:
+            _log(f"correct 未采纳 reason={result.reason} ms={result.ms}")
+        return {
+            "applied": result.applied,
+            "text": result.text,
+            "fixes": result.fixes,
+            "reason": result.reason,
+            "ms": result.ms,
+        }
+
+    def session_record(
+        self,
+        *,
+        outcome: str = "Failed",
+        chars: int = 0,
+        e2e_ms: int = 0,
+        ms_asr: int = 0,
+        ms_post: int = 0,
+        ms_inject: int = 0,
+        speech_ms: int = 0,
+        strategy: str = "",
+        fixes: int = 0,
+        error: str = "",
+        text: str | None = None,
+        raw_text: str | None = None,
+        clean_text: str | None = None,
+    ) -> dict:
+        """`session_record` → {id}：把一次会话写进历史库（mode=ptt）。
+
+        参数由 Rust 壳在注入后传（Trace 字段的壳侧子集）；文本三级对照
+        原样交给 `add_history`——`store_text` 关闭时只落长度不落文本，
+        该开关在 store 内生效，这里不复制判断逻辑。数据库问题绝不抛出：
+        记账失败只返回 id=-1，绝不影响已完成的注入。
+        """
+        if self._store is None:
+            return {"id": -1, "error": "no-store"}
+        try:
+            trace = Trace(
+                outcome=Outcome(outcome) if outcome in Outcome._value2member_map_ else Outcome.FAILED,
+                chars=_as_int(chars, "chars"),
+                e2e_ms=_as_int(e2e_ms, "e2e_ms"),
+                ms_asr=_as_int(ms_asr, "ms_asr"),
+                ms_post=_as_int(ms_post, "ms_post"),
+                ms_inject=_as_int(ms_inject, "ms_inject"),
+                speech_ms=_as_int(speech_ms, "speech_ms"),
+                injection_strategy=str(strategy),
+                fixes=_as_int(fixes, "fixes"),
+                error=str(error)[:120],
+            )
+            rid = self._store.add_history(
+                trace, text, mode="ptt", raw_text=raw_text, clean_text=clean_text
+            )
+            _log(f"session_record id={rid} outcome={trace.outcome.value} chars={trace.chars}")
+            return {"id": rid}
+        except Exception as exc:  # noqa: BLE001 - 记账失败不影响注入结果
+            _log(f"⚠ 写历史失败：{type(exc).__name__}: {exc}")
+            return {"id": -1}
 
     # ------------------------------------------------------------ 内部
 

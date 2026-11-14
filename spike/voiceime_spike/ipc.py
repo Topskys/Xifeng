@@ -53,6 +53,8 @@ RUNTIME_METHODS: dict[str, str] = {
     "asr_feed": "feed",
     "asr_end": "end",
     "asr_cancel": "cancel",
+    "correct": "correct",
+    "session_record": "session_record",
 }
 
 #: 参数是一整个 JSON 对象的方法（`Api` 里签名就是 `body: dict`）

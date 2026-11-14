@@ -208,6 +208,8 @@ def ipc_mode(args: argparse.Namespace, argv: list[str] | None = None) -> int:
             threads=args.threads,
             use_vad=args.vad,
             trim_silence=args.trim,
+            model_correct=cfg.model_correct,
+            store=store,
         )
         try:
             return ipc.serve(store, cfg, stdout=proto_out, runtime=runtime)

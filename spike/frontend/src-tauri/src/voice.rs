@@ -422,10 +422,16 @@ pub fn run(bridge: Arc<PythonBridge>, hook: Arc<Hook>, app: AppHandle) {
         ..ime_post::PostConfig::default()
     };
     let vks = key.vks();
+    // 本地 LLM 纠错开关（G32 守卫在 Python correction.check 内，applied=false 即拒绝）
+    let model_correct = settings
+        .as_ref()
+        .and_then(|s| s.get("model_correct"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     eprintln!(
         "[voice] 双击热键后保持长按说话，松开输入；Esc 取消；按需开麦 \
-         （热键={:?} 注入策略={:?} 填充词={:?}）",
-        key, inject_cfg.strategy, post_cfg.filler_level
+         （热键={:?} 注入策略={:?} 填充词={:?} 纠错={}）",
+        key, inject_cfg.strategy, post_cfg.filler_level, if model_correct { "开" } else { "关" }
     );
     if !hook.active() {
         eprintln!("[voice] ⚠ 键盘钩子未就绪，按键采集不可用");
@@ -531,12 +537,14 @@ pub fn run(bridge: Arc<PythonBridge>, hook: Arc<Hook>, app: AppHandle) {
 
         // 松手 → 裁剪 + 解码（原始文本，壳负责后处理）
         let t_release = Instant::now();
-        let raw = match bridge.call("asr_end", serde_json::json!({})) {
-            Ok(v) => v
-                .get("text")
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string(),
+        let (raw, asr_ms) = match bridge.call("asr_end", serde_json::json!({})) {
+            Ok(v) => (
+                v.get("text")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                v.get("ms").and_then(|m| m.as_u64()).unwrap_or(0),
+            ),
             Err(e) => {
                 eprintln!("[voice] asr_end 失败：{e}");
                 continue;
@@ -553,7 +561,7 @@ pub fn run(bridge: Arc<PythonBridge>, hook: Arc<Hook>, app: AppHandle) {
 
         // 后处理：幻觉/复读/填充词清理/归一（ime-post，与 Python postprocess 等价）
         let t_post0 = Instant::now();
-        let cleaned = match ime_post::process(&raw, &post_cfg) {
+        let mut cleaned = match ime_post::process(&raw, &post_cfg) {
             Some(c) => c,
             None => {
                 eprintln!("[voice] 后处理判为不注入（空/幻觉/纯语气词），len={}", raw.chars().count());
@@ -562,24 +570,73 @@ pub fn run(bridge: Arc<PythonBridge>, hook: Arc<Hook>, app: AppHandle) {
         };
         let t_post = t_post0.elapsed();
 
+        // 本地 LLM 纠错（可选，+0.5–1.5s；G32 守卫在 Python correction.check 内，
+        // applied=false 即拒绝——壳只在 applied=true 时采用修正文本）
+        let cleaned_stage = cleaned.clone(); // 三级对照的中间级（纠错前）
+        let mut fixes: u64 = 0;
+        let mut ms_correct = Duration::ZERO;
+        if model_correct {
+            let t_c0 = Instant::now();
+            match bridge.call("correct", serde_json::json!({ "text": &cleaned })) {
+                Ok(v) => {
+                    if v.get("applied").and_then(|a| a.as_bool()).unwrap_or(false) {
+                        let fixed = v.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                        fixes = v.get("fixes").and_then(|f| f.as_u64()).unwrap_or(0);
+                        // 与 Python pipeline 同序：修正文本重新 normalize + final_check
+                        match ime_post::final_check(&ime_post::normalize(fixed, &post_cfg)) {
+                            Some(c) => cleaned = c,
+                            None => {
+                                eprintln!("[voice] 纠错后文本为空，不注入（len={})", raw.chars().count());
+                                continue;
+                            }
+                        }
+                    }
+                }
+                Err(e) => eprintln!("[voice] ⚠ correct 调用失败，按原文注入：{e}"),
+            }
+            ms_correct = t_c0.elapsed();
+        }
+
         // 注入（策略/焦点恢复/剪贴板恢复时延来自用户设置，settings 边界已解析）
         let t_inj0 = Instant::now();
         let res = inject_ex(&cleaned, snap.as_ref(), &inject_cfg);
         let t_inj = t_inj0.elapsed();
+        let injected = res.outcome == InjectOutcome::Injected;
         eprintln!(
-            "[voice] 会话完成：hold={}ms 松手→asr_end={}ms 后处理={}ms 注入={}ms 松手→完成={}ms chars={} outcome={} strategy={}",
+            "[voice] 会话完成：hold={}ms 松手→asr_end={}ms 后处理={}ms 纠错={}ms 注入={}ms \
+             松手→完成={}ms chars={} fixes={} outcome={} strategy={}",
             stats.hold_ms,
             t_asr_end.as_millis(),
             t_post.as_millis(),
+            ms_correct.as_millis(),
             t_inj.as_millis(),
             t_release.elapsed().as_millis(),
             cleaned.chars().count(),
+            fixes,
             res.outcome.as_str(),
             res.strategy
         );
-        if res.outcome == InjectOutcome::Injected {
-            // TODO(P1d)：写统计/历史（现由 Python 侧 store 承担，迁移时接 rusqlite 或继续走 IPC）
-        }
+
+        // 记账：写一条历史（store_text 开关在 Python add_history 内生效；
+        // 记账失败只落 id=-1，绝不影响已完成的注入）
+        let _ = bridge.call(
+            "session_record",
+            serde_json::json!({
+                "outcome": if injected { "Injected" } else { "Failed" },
+                "chars": cleaned.chars().count(),
+                "e2e_ms": t_release.elapsed().as_millis() as u64,
+                "ms_asr": asr_ms,
+                "ms_post": (t_post + ms_correct).as_millis() as u64,
+                "ms_inject": t_inj.as_millis() as u64,
+                "speech_ms": stats.hold_ms as u64,
+                "strategy": res.strategy,
+                "fixes": fixes,
+                "error": if injected { "" } else { res.outcome.as_str() },
+                "text": &cleaned,
+                "raw_text": &raw,
+                "clean_text": &cleaned_stage,
+            }),
+        );
     }
 }
 

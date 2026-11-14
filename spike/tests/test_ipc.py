@@ -38,7 +38,7 @@ CONTRACT_METHODS = {
 }
 
 #: D16 运行时方法（ipc-contract.md「D16 运行时方法」节，Rust 壳驱动）
-RUNTIME_METHODS = {"asr_begin", "asr_feed", "asr_end", "asr_cancel"}
+RUNTIME_METHODS = {"asr_begin", "asr_feed", "asr_end", "asr_cancel", "correct", "session_record"}
 
 
 @pytest.fixture
@@ -331,7 +331,7 @@ def test_runtime_method_table_matches_contract() -> None:
     from voiceime_spike.asr_runtime import AsrRuntime
 
     assert set(ipc.RUNTIME_METHODS) == RUNTIME_METHODS
-    assert len(ipc.RUNTIME_METHODS) == 4
+    assert len(ipc.RUNTIME_METHODS) == 6
     assert set(ipc.RUNTIME_METHODS) & set(ipc.METHODS) == set()
     for method, target in ipc.RUNTIME_METHODS.items():
         assert callable(getattr(AsrRuntime, target, None)), f"{method} → {target} 不存在"

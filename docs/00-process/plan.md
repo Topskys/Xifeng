@@ -284,8 +284,11 @@ voice-ime/
 
 - **重采样 CER**：已过 CER 对比（2.4% vs 基线 3.3%，不劣化），关。算法单测对照脚本 `tools/resample_cer.py` 留档。
 - **settings 热更**：壳启动时取一次 settings，改设置需重启壳（Python 语音服务同款行为）；P2 做热更。
-- **纠错（LLM）暂不在 Rust 链路**：asr_end 返回原文后直接后处理，`model_correct` 设置在壳路径不生效 → 已知限制，P2 补（走 IPC correct + G32 守卫在 Python 侧）。
-- **统计/历史断档**：注入成功不再写 Python store → 统计页数字停更；P2 接 rusqlite 或 IPC 记账（voice.rs 留 TODO(P1d)）。
+- **~~纠错（LLM）暂不在 Rust 链路~~（P2-② 已接）**：壳在 asr_end→后处理后按 `model_correct` 调 IPC `correct`
+  （applied=true 才采用修正文本，重新 normalize+final_check，与 pipeline.py 同序）；G32 守卫在 Python `correction.check` 内；
+  LLM 冷启动由 Python warmup 预热（`correct 模型已热身`）。实测真实进程：预热 1832ms、推理 588ms、守卫拒绝返回原文。
+- **~~统计/历史断档~~（P2-② 已接）**：注入后壳调 IPC `session_record` 写 history（mode=ptt），
+  store_text 关闭时三级对照都不落文本（开关在 add_history 内生效）；记账失败恒 ok=true 不影响注入。
 - **钩子装不上**（Low 完整性目录/安全软件）：壳降级为"窗口可用无语音"并打日志（G21/G24），安装器产物在仓库外构建规避。
 - **G7 提权目标无 UI 反馈**：只有 stderr 日志（ElevatedTarget），用户看不到 → P2 反馈链补（与统计断档一起）。
 - **voice_test 后门**（tap/down/up/inject）进了 release 产物：只接受 CDP/前端显式调用、合成按键与注入都带语义安全（tap 不带 MAGIC 需真实钩子、inject 打当前焦点），风险可接受；P2 做 debug 门控。

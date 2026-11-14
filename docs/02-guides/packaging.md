@@ -73,6 +73,14 @@ uv run python tools/core_smoke.py              # 独立冒烟：ready→bootstra
   曾因写成平铺导致壳找不到 sidecar、静默跌到 PATH python。
 - **冒烟 MUST 在 `tauri build` 之前跑**（G36 就是冒烟发现的：3 秒内报
   `ModuleNotFoundError: tkinter`，而打包本身是成功的）。
+- **CRT 版本覆写（G33 sidecar 版）**：PyInstaller 会从依赖收进旧
+  `MSVCP140.dll`（实测 14.31），与 llama-cpp-python 的 14.40 工具链 DLL 混用
+  会在冻结态 `llama_backend_init()` 直接 `access violation reading 0x0`——
+  **只在冻结形态复现**（venv 里连打包目录的 llama.dll 都加载正常）。
+  `build_core.py` 已移植 build.py 的 `fix_msvc_runtime`：打完自动按版本号
+  用系统新副本覆盖 `_internal` 里的 CRT。验证方式：打包 core 独立跑
+  `--ipc` 喂 `correct`（UTF-8 字节经 cmd 重定向直灌，PowerShell 管道会把
+  中文编码成 `?`），日志应出现「correct 模型已热身」且推理返回真实 ms。
 - 端到端验证（壳 → sidecar → IPC）用 `tools/ask_boot.py <port>`：窗口开调试端口后
   经 CDP 调 `py_call("bootstrap")`，返回 `OK {...version...}` 即通。
 - 实测：sidecar 启动到 ready 约 403ms，IPC 冒烟退出码 0。

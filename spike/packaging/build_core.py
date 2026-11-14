@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import os
 import shutil
 import subprocess
@@ -85,6 +86,73 @@ def copy_entry(app: Path) -> None:
     dst = app / "run_spike.py"
     shutil.copy2(ENTRY, dst)
     print(f"[core] 放入判据文件 {dst.relative_to(OUT.parent)}")
+
+
+# ---------------------------------------------------------------- G33：CRT 版本覆写
+# 与 build.py 同款（G33 的 sidecar 版移植）：PyInstaller 从依赖里收进旧
+# `MSVCP140.dll`（实测 14.31），而 llama-cpp-python 的 `ggml-cpu.dll`/`llama.dll`
+# 是 14.40 工具链构建的，混用旧 msvcp 会在 `llama_backend_init()` 直接
+# `access violation reading 0x0`——**只发生在冻结形态**，源码态复现不了。
+
+CRT_DLLS = ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "concrt140.dll")
+
+
+class _VS_FIXEDFILEINFO(ctypes.Structure):
+    _fields_ = [
+        ("dwSignature", ctypes.c_uint32),
+        ("dwStrucVersion", ctypes.c_uint32),
+        ("dwFileVersionMS", ctypes.c_uint32),
+        ("dwFileVersionLS", ctypes.c_uint32),
+        ("dwProductVersionMS", ctypes.c_uint32),
+        ("dwProductVersionLS", ctypes.c_uint32),
+        ("dwFileFlagsMask", ctypes.c_uint32),
+        ("dwFileFlags", ctypes.c_uint32),
+        ("dwFileOS", ctypes.c_uint32),
+        ("dwFileType", ctypes.c_uint32),
+        ("dwFileSubtype", ctypes.c_uint32),
+        ("dwFileDateMS", ctypes.c_uint32),
+        ("dwFileDateLS", ctypes.c_uint32),
+    ]
+
+
+def file_version(path: Path) -> tuple[int, ...]:
+    """读 exe/dll 的 FILEVERSION（不依赖 pywin32）。读不到返回 (0,)。"""
+    size = ctypes.windll.version.GetFileVersionInfoSizeW(str(path), None)
+    if not size:
+        return (0,)
+    buf = ctypes.create_string_buffer(size)
+    if not ctypes.windll.version.GetFileVersionInfoW(str(path), 0, size, buf):
+        return (0,)
+    ptr = ctypes.c_void_p()
+    length = ctypes.c_uint()
+    if not ctypes.windll.version.VerQueryValueW(
+        buf, "\\", ctypes.byref(ptr), ctypes.byref(length)
+    ):
+        return (0,)
+    if not ptr.value:
+        return (0,)
+    info = ctypes.cast(ptr, ctypes.POINTER(_VS_FIXEDFILEINFO)).contents
+    ms, ls = info.dwFileVersionMS, info.dwFileVersionLS
+    return (ms >> 16, ms & 0xFFFF, ls >> 16, ls & 0xFFFF)
+
+
+def fix_msvc_runtime(app_dir: Path) -> None:
+    """用系统里更新的 MSVC 运行库覆盖 PyInstaller 收进来的旧副本（G33）。"""
+    internal = app_dir / "_internal"
+    if not internal.is_dir():
+        return
+    sys32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+    for name in CRT_DLLS:
+        dst = internal / name
+        src = sys32 / name
+        if not dst.is_file() or not src.is_file():
+            continue
+        old, new = file_version(dst), file_version(src)
+        if new > old:
+            shutil.copy2(src, dst)
+            print(f"[core] CRT 更新 {name}: {'.'.join(map(str, old))} → {'.'.join(map(str, new))}")
+        else:
+            print(f"[core] CRT 已够新，跳过 {name}（{'.'.join(map(str, old))}）")
 
 
 MODELS_OUT = OUT.parent / "models"  # resources/models → 安装目录 models/
@@ -152,6 +220,7 @@ def main() -> int:
 
     app = build(work, args.clean)
     copy_entry(app)
+    fix_msvc_runtime(app)
     if args.with_models:
         copy_models()
     else:

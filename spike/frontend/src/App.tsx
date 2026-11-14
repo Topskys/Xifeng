@@ -73,6 +73,29 @@ export default function App() {
     }).catch((e) => showToast(String(e), false))
   }, [applyTheme, showToast])
 
+  // G7 反馈链：注入落在提权（管理员）窗口时 SendInput 无效，壳发事件——
+  // 这里弹提示让用户知道原因，而不是静默丢字。
+  useEffect(() => {
+    const tauri = (window as unknown as {
+      __TAURI__?: { event?: { listen: (e: string, h: (ev: { payload: unknown }) => void) => Promise<() => void> } }
+    }).__TAURI__
+    if (!tauri?.event?.listen) return
+    let un: (() => void) | undefined
+    let cancelled = false
+    tauri.event
+      .listen("voice://elevated", () => {
+        showToast("目标窗口以管理员权限运行，收不到语音输入。请以管理员身份重启 VoiceIME，或换普通权限窗口。", false)
+      })
+      .then((u) => {
+        if (cancelled) u()
+        else un = u
+      })
+    return () => {
+      cancelled = true
+      un?.()
+    }
+  }, [showToast])
+
   // 心跳：窗口关掉后本地服务 30s 内退出，避免托盘反复开窗留下僵尸进程
   useEffect(() => {
     const ping = () => {

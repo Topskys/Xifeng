@@ -32,3 +32,6 @@ windows = { version = "0.58", features = [
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+# e2e：便携壳自动化验证用（voice_test 合成按键/注入 smoke 后门）。
+# 正式安装器不带——release 构建里该命令显式报错，收攻击面。
+e2e = []

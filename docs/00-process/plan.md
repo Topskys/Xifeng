@@ -276,7 +276,7 @@ voice-ime/
 ### 复审裁决记录（存疑项定夺）
 
 - **部分成功 SendInput 报成功**：与 Python 基线行为一致（inject.py:556-557 同款），非回归，保持现状。
-- **G7 提权目标无 UI 反馈**：与统计/历史停更同属 P2 反馈链缺口，记已知限制。
+- **~~G7 提权目标无 UI 反馈~~（P2-③ 已接）**：壳 emit `voice://elevated`（ElevatedTarget 时）→ 主窗口 App.tsx 监听 → toast 提示；与统计/历史反馈链同批闭环。
 - **voice://level 节奏**：契约改为「喂送循环每轮一发（仅录音中）」，与实现一致；固定 40ms 节流随 P2 喂送节流做。
 - **未知注入策略**：settings 边界显式 ERROR 日志 + 按 auto 继续（宁可功能可用，错误显眼；不做静默）。
 
@@ -294,9 +294,16 @@ voice-ime/
 - **~~统计/历史断档~~（P2-② 已接）**：注入后壳调 IPC `session_record` 写 history（mode=ptt），
   store_text 关闭时三级对照都不落文本（开关在 add_history 内生效）；记账失败恒 ok=true 不影响注入。
 - **钩子装不上**（Low 完整性目录/安全软件）：壳降级为"窗口可用无语音"并打日志（G21/G24），安装器产物在仓库外构建规避。
-- **G7 提权目标无 UI 反馈**：只有 stderr 日志（ElevatedTarget），用户看不到 → P2 反馈链补（与统计断档一起）。
-- **voice_test 后门**（tap/down/up/inject）进了 release 产物：只接受 CDP/前端显式调用、合成按键与注入都带语义安全（tap 不带 MAGIC 需真实钩子、inject 打当前焦点），风险可接受；P2 做 debug 门控。
-- **老自启键迁移**：Python 时代写的 `VoiceIME` 注册表值指向已退役 sidecar，升级用户首次点「开启自启」才会覆写为壳 exe → P2 首启检测迁移。
+- **~~G7 提权目标无 UI 反馈~~（P2-③ 已接）**：注入 outcome=ElevatedTarget 时壳 emit
+  `voice://elevated`，主窗口 App.tsx 监听后 toast 提示（提权窗口收不到语音输入）。
+- **~~voice_test 后门~~（P2-③ 已门控）**：`#[cfg(any(debug_assertions, feature = "e2e"))]`——
+  正式 release 产物里 voice_test/send_ctrl/test_inject 不编译，CDP 调用显式报错；
+  便携 e2e 壳用 `cargo build --release --features e2e`。实测：plain release 报
+  「voice_test 仅在 debug 或 e2e 构建可用」，e2e 壳全链路回归通过。
+- **~~老自启键迁移~~（P2-③ 已做）**：壳启动时 `autostart::migrate_legacy()`——Run 值
+  `VoiceIME` 存在且目标 ≠ 壳 exe 即覆写为壳 exe（保留自启意图），旧值落日志；
+  没开自启/已是壳 exe 则无事可做。实测：写 Python 时代假旧值 → 起壳 → 覆写
+  `"...voiceime-tauri.exe"` + 日志「已迁移旧版自启项」；重启无重复迁移。
 
 ---
 

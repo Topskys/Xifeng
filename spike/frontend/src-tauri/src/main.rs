@@ -101,6 +101,10 @@ fn close(window: tauri::Window) -> Result<(), String> {
 /// - `tap`：单击一次（按下→150ms→松开，作为双击的第一击）
 /// - `down`/`up`：按住/松开（双击的第二击长按用 CDP 时序自己控制）
 /// 事件走真实 WH_KEYBOARD_LL 链路（SendInput 不带 MAGIC），验得完整。
+/// e2e 后门（tap|down|up|inject）：**只在 debug 或 `--features e2e` 构建可用**
+/// （P2-③ 门控，收正式安装器的攻击面——release 产物里该命令显式报错）。
+/// 便携 e2e 壳需 `cargo build --release --features e2e`。
+#[cfg(any(debug_assertions, feature = "e2e"))]
 #[tauri::command]
 async fn voice_test(mode: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || match mode.as_str() {
@@ -133,6 +137,14 @@ async fn voice_test(mode: String) -> Result<(), String> {
     })
     .await
     .map_err(|e| format!("voice_test 异常：{e}"))?
+}
+
+/// 正式（release 无 e2e）构建里的占位：显式报错，绝不静默。
+#[cfg(not(any(debug_assertions, feature = "e2e")))]
+#[tauri::command]
+async fn voice_test(mode: String) -> Result<(), String> {
+    let _ = mode;
+    Err("voice_test 仅在 debug 或 e2e 构建可用（正式安装器不带此命令）".into())
 }
 
 /// 录音浮窗：屏幕底部居中的小胶囊（360×60 逻辑像素），前端按
@@ -239,6 +251,13 @@ fn main() {
                 // 托盘两项：显示主界面 / 退出（D16 P1d，用户决策）
                 if let Err(e) = tray::install(app.handle()) {
                     eprintln!("[shell] 托盘安装失败：{e}");
+                }
+                // 老自启值迁移（P2-③）：Python 时代指向已退役 sidecar 的
+                // Run 值覆写为壳 exe（保留自启意图；没开自启则无事可做）
+                match autostart::migrate_legacy() {
+                    Ok(Some(old)) => eprintln!("[shell] 已迁移旧版自启项 → 壳 exe（旧值：{old}）"),
+                    Ok(None) => {}
+                    Err(e) => eprintln!("[shell] ⚠ 旧版自启项迁移失败：{e}（可在设置里手动重开自启）"),
                 }
                 // D16 P1b：热键采集与语音编排迁入壳。**不再拉起 Python
                 // --ptt --tray 语音服务**——两个钩子会双重触发、双重注入。

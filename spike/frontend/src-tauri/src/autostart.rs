@@ -55,6 +55,39 @@ pub fn set(enabled: bool) -> Result<(), String> {
     }
 }
 
+/// 老版本自启值迁移（P2-③）：Python 时代的 `VoiceIME` 值指向已退役的
+/// sidecar 命令行（`...\VoiceIME-Core --tray` 或旧 PyInstaller exe）。
+/// 升级用户首次启动壳时覆写为壳 exe——保留用户的自启意图，而不是等他
+/// 手动关了再开。返回覆写前的旧值供日志；`Ok(None)` = 没开自启或已是
+/// 壳 exe（可能就是本壳写的），无事可做。
+#[cfg(windows)]
+pub fn migrate_legacy() -> Result<Option<String>, String> {
+    use winreg::enums::{KEY_QUERY_VALUE, KEY_SET_VALUE, HKEY_CURRENT_USER};
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key = hkcu
+        .open_subkey_with_flags(RUN_KEY, KEY_QUERY_VALUE | KEY_SET_VALUE)
+        .map_err(|e| format!("打开 Run 键失败：{e}"))?;
+    let old: String = match key.get_value(VALUE_NAME) {
+        Ok(v) => v,
+        // 没开自启：迁移无事可做（不算错误）
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("读自启值失败：{e}")),
+    };
+    if old == shell_command() {
+        return Ok(None);
+    }
+    key.set_value(VALUE_NAME, &shell_command())
+        .map_err(|e| format!("迁移自启值失败：{e}"))?;
+    Ok(Some(old))
+}
+
+#[cfg(not(windows))]
+pub fn migrate_legacy() -> Result<Option<String>, String> {
+    Ok(None)
+}
+
 /// Tauri 命令：`autostart_cmd({enabled?: bool})`。
 /// 带 `enabled` 时设置（返回 `{ok, error}`，与 Python `autostart` 方法同形）；
 /// 不带时返回当前状态。

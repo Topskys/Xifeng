@@ -648,6 +648,11 @@ pub fn run(
         let t_inj0 = Instant::now();
         let res = inject_ex(&cleaned, snap.as_ref(), &inject_cfg);
         let t_inj = t_inj0.elapsed();
+        // G7 反馈链：提权（管理员）目标 SendInput 无效且必须显式失败——
+        // 光落日志用户看不到「为什么没打上字」，发事件给前端弹提示。
+        if res.outcome == InjectOutcome::ElevatedTarget {
+            let _ = app.emit("voice://elevated", ());
+        }
         let injected = res.outcome == InjectOutcome::Injected;
         eprintln!(
             "[voice] 会话完成：hold={}ms 松手→asr_end={}ms 后处理={}ms 纠错={}ms 注入={}ms \
@@ -691,7 +696,8 @@ pub fn run(
 
 /// 给真实钩子喂一个合成的 Ctrl 按下/松开（SendInput，不带 MAGIC）。
 /// 只用于沙箱 e2e：事件走真实的 WH_KEYBOARD_LL 链路，验得完整。
-#[cfg(windows)]
+/// 门控与 main.rs voice_test 一致：debug / `--features e2e` 才编译。
+#[cfg(all(windows, any(debug_assertions, feature = "e2e")))]
 pub fn send_ctrl(down: bool) {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
@@ -716,12 +722,12 @@ pub fn send_ctrl(down: bool) {
 }
 
 /// 注入 smoke：把文本打到当前焦点窗口（e2e 用，不碰真实识别链路）。
-#[cfg(windows)]
+#[cfg(all(windows, any(debug_assertions, feature = "e2e")))]
 pub fn test_inject(text: &str) -> crate::inject::InjectResult {
     crate::inject::inject_ex(text, None, &crate::inject::InjectConfig::default())
 }
 
-#[cfg(not(windows))]
+#[cfg(not(all(windows, any(debug_assertions, feature = "e2e"))))]
 pub fn test_inject(_text: &str) -> crate::inject::InjectResult {
     crate::inject::InjectResult {
         outcome: crate::inject::InjectOutcome::Failed,

@@ -65,8 +65,8 @@ D16 后：触发链在壳里，**Python --ptt --tray 语音服务已退役**（s
 托盘两项（显示主界面/退出）、开机自启写注册表值 `VoiceIME`（HKCU\...\Run，指向壳 exe）、
 录音浮窗是 `?window=overlay` webview 页（`voice://level` 音量事件）。
 已知限制：设置热更在**下一次语音会话**生效（会话中段不变）；纠错（LLM）与
-统计/历史已走 IPC（correct/session_record）；G7 提权目标暂无用户可见提示
-（只落日志，P2 补反馈链）。
+统计/历史已走 IPC（correct/session_record）；G7 提权目标已接反馈链
+（voice://elevated → 主窗口 toast）；voice_test 仅 debug/e2e 构建可用。
 
 Rust 以 PyO3 扩展（`voiceime_rs.pyd`）参与：`crates/ime-post` 放文本规则，`crates/ime-vad` 放 VAD 算法，`crates/ime-py` 只做
 Python 签名 ↔ Rust 的转接。Python 侧保留纯 Python 基准实现，两边必须逐字节等价。

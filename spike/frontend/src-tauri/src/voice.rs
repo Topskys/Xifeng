@@ -349,26 +349,69 @@ fn new_mic() -> Mic {
 
 // ---------------------------------------------------------------- 编排器
 
-/// 按住即录（单击触发）：等热键按下 → 立刻开流 → 过组合键观察窗 → 返回按下时刻。
+/// 按住即录（单击触发）：等热键按下 → **开流与弹窗并行** → 过组合键观察窗。
 ///
-/// 开流放在按下瞬间：cpal 的 `play→首回调` 仅 ~20ms，但 `build_input_stream`
-/// （WASAPI 初始化）本身要 120–150ms（引擎热）到 450–800ms（空闲 >5s 后引擎已回收，
-/// 见 G41），所以"按下即开流"并不等于零等待——浮窗就是在这之后才弹，
-/// 它如实表示"麦克风已经真的在采了"。观察窗期间到达的音频留在环形缓冲里，
-/// `run()` 开始喂送时一并送进 ASR——所以观察窗本身**不丢句首**。
+/// 返回 `Some(按下时刻)` = 进入会话；`None` = 组合键或观察窗内松手，静默丢弃。
+///
+/// 并行（G42）：cpal 的 `Stream` 是 `!Send`（不能跨线程建流），所以并行的是
+/// **弹窗那一路**——按下时起一个线程，等满 `COMBO_GUARD_MS` 且确认不是组合键就
+/// `show()`，完全不等 WASAPI 建流（冷态 450–800ms，见 G41）。
+/// 主线程同时 `mic.start()`；观察窗里到达的音频留在环形缓冲，`run()` 开始喂送时
+/// 一并送进 ASR——观察窗本身**不丢句首**。
+///
+/// 代价（如实记账）：冷态下浮窗比"麦克风真正开始采集"早 300–650ms。所以浮窗出现
+/// ≠ 已经在采，用户若立刻开口，开头那一小段仍会丢；想彻底消除只能让流常驻（D19 否决）。
 ///
 /// 组合键（G40）：按下后 `COMBO_GUARD_MS` 内出现任何其它键（含按下前就按住的
 /// Shift/Alt 等，也含窗口内按下又松开的极短敲击）→ 判定为组合键，静默丢弃
 /// （不开会话、不弹浮窗、不碰 ASR），等热键松开后重新等下一次按下。设成 150ms
 /// 是因为打字时 `Ctrl+C` 的 C 几乎与 Ctrl 同时落下，而人开口前的正常停顿远大于 150ms。
-fn wait_for_press(hook: &Hook, vks: &[u32], mic: &mut Mic) -> Instant {
+fn wait_for_press(
+    hook: &Arc<Hook>,
+    vks: &[u32],
+    mic: &mut Mic,
+    app: &AppHandle,
+    theme: &str,
+) -> Option<Instant> {
     let poll = Duration::from_millis(hotkey::POLL_MS);
+    let guard = Duration::from_millis(COMBO_GUARD_MS);
     loop {
         while !hook.pressed(vks) {
             let _ = hook.drain_presses(); // 等待期组合无意义，丢弃
             std::thread::sleep(poll);
         }
         let t_down = Instant::now();
+
+        // 弹窗线程：只等观察窗，不等开流。与下面的 mic.start() 真并行。
+        // 返回 (是否已弹窗, 是否判定为组合键)——`drain_presses` 是取走语义，
+        // 它一旦取走，主线程就看不到那些敲击了，所以判定结果必须回传。
+        let popup = {
+            let hook = Arc::clone(hook);
+            let vks = vks.to_vec();
+            let app = app.clone();
+            let theme = theme.to_string();
+            std::thread::spawn(move || -> (bool, bool) {
+                while Instant::now() < t_down + guard {
+                    std::thread::sleep(poll);
+                }
+                // 组合键两条通道都看：已按住的其它键 + 窗口内按下又松开的极短敲击
+                let combo = !hook.down_except(&vks).is_empty()
+                    || hook
+                        .drain_presses()
+                        .iter()
+                        .any(|vk| !vks.contains(vk) && *vk != VK_ESCAPE);
+                if combo || !hook.pressed(&vks) {
+                    return (false, combo); // 组合键 / 观察窗内就松手：不弹
+                }
+                if let Some(w) = app.get_webview_window("overlay") {
+                    let _ = app.emit("voice://theme", theme.as_str());
+                    let _ = w.show();
+                    return (true, false);
+                }
+                (false, false) // 窗口还没建好：交给 run() 兜底
+            })
+        };
+
         if !mic.running() {
             if let Err(e) = mic.start() {
                 eprintln!("[voice] {e}");
@@ -379,7 +422,6 @@ fn wait_for_press(hook: &Hook, vks: &[u32], mic: &mut Mic) -> Instant {
         //   drain_presses：窗口内按下又松开的其它键（极短敲击不会留在 down 里）
         // 注意先判一次再进循环：`mic.start()` 可能要上百毫秒（设备重开），
         // 若等它返回才开始计时，观察窗会被整段跳过（实测 Shift+Ctrl 漏判）。
-        let guard = Duration::from_millis(COMBO_GUARD_MS);
         let mut combo = false;
         loop {
             let pressed_other = hook
@@ -395,14 +437,21 @@ fn wait_for_press(hook: &Hook, vks: &[u32], mic: &mut Mic) -> Instant {
             }
             std::thread::sleep(poll);
         }
-        if !combo && hook.pressed(vks) {
-            return t_down;
+        let (popup_shown, popup_combo) = popup.join().unwrap_or((false, true));
+        if !combo && !popup_combo && hook.pressed(vks) {
+            return Some(t_down);
         }
         // 组合键 / 观察窗内就松手（误触）：静默作废，等热键松开再重来
         while hook.pressed(vks) {
             std::thread::sleep(poll);
         }
         mic.stop_stream(); // 不进入会话就不占麦
+        // 弹窗线程可能已经弹了（组合键是它之后才被主线程发现的）：收回去
+        if popup_shown {
+            if let Some(w) = app.get_webview_window("overlay") {
+                let _ = w.hide();
+            }
+        }
     }
 }
 
@@ -550,10 +599,12 @@ pub fn run(
             let s = cfg.lock().unwrap();
             (s.vks.clone(), s.inject_cfg.clone(), s.post_cfg.clone(), s.model_correct, s.theme.clone())
         };
-        let t_press = wait_for_press(&hook, &vks, &mut mic);
-        // 浮窗在观察窗通过后弹出（零等待的语义保留：观察窗 150ms 不可感，
-        // 音从按下瞬间就在采集）。浮窗不抢焦点（WS_EX_NOACTIVATE，见 main.rs），
-        // 不污染稍后的焦点快照。
+        let Some(t_press) = wait_for_press(&hook, &vks, &mut mic, &app, &theme) else {
+            continue; // 组合键 / 观察窗内松手：已静默丢弃，回到等按键
+        };
+        // 兜底弹窗：正常路径在观察窗通过那一刻已经由弹窗线程 show 过（G42），
+        // 这里覆盖"窗口当时还没建好"的极早期情况；重复 show 无副作用。
+        // 浮窗不抢焦点（WS_EX_NOACTIVATE，见 main.rs），不污染稍后的焦点快照。
         if let Some(w) = app.get_webview_window("overlay") {
             let _ = app.emit("voice://theme", theme.as_str());
             let _ = w.show();

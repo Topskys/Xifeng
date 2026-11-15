@@ -242,13 +242,13 @@ export const api = {
     call<{ latest: string; current: string; update: boolean } | { error: string }>("/api/check_update"),
 }
 
+// 热键预设：左右互斥（2026-11-14 用户要求）——没有"左右均可"这个选项。
+// 默认右 Ctrl：与 Python `hotkey.DEFAULT_KEY`、壳 `KeyPreset` 默认值一致。
 export const HOTKEY_LABEL: Record<string, string> = {
-  ctrl: "Ctrl（左右均可）",
+  rctrl: "右 Ctrl（默认）",
   lctrl: "左 Ctrl",
-  rctrl: "右 Ctrl",
-  shift: "Shift（左右均可）",
-  lshift: "左 Shift",
   rshift: "右 Shift",
+  lshift: "左 Shift",
 }
 
 export const STRATEGY_LABEL: Record<string, string> = {

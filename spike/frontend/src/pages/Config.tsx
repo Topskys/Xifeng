@@ -126,7 +126,7 @@ export function ConfigPage({
 
       <div>
         <Group>
-          <Row title="触发热键" desc="全局键，左右两侧可分别指定">
+          <Row title="触发热键" desc="全局键；左右互斥，只认设置的那一侧（默认右 Ctrl）">
             <SimpleSelect
               options={sel(HOTKEY_LABEL)}
               value={s.hotkey}

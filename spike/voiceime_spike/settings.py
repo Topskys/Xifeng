@@ -50,6 +50,9 @@ class Settings:
 
 DEFAULTS = Settings()
 
+# 旧热键值 → 现在的具体一侧（左右互斥后可选项只有 lctrl/rctrl/lshift/rshift）
+_LEGACY_HOTKEYS = {"ctrl": "rctrl", "shift": "lshift"}
+
 
 def _encode(value: object) -> str:
     if isinstance(value, bool):
@@ -82,7 +85,15 @@ def load(store: Store | None) -> Settings:
         return DEFAULTS
     try:
         get = store.get_setting
-        hot = _as_choice(get("hotkey"), tuple(sorted(hotkey.KEYS)), DEFAULTS.hotkey)
+        # 旧值兼容：`ctrl`/`shift` 曾经表示"左右均可"，现在左右互斥，
+        # 读到旧值时归一到具体一侧（ctrl→右 Ctrl、shift→左 Shift），
+        # 这样老库不用重写、UI 也能显示真实生效的那一侧。
+        hot_raw = (get("hotkey") or "").strip()
+        hot = _as_choice(
+            _LEGACY_HOTKEYS.get(hot_raw, hot_raw),
+            tuple(sorted(hotkey.KEYS)),
+            DEFAULTS.hotkey,
+        )
         return Settings(
             inject_strategy=_as_choice(
                 get("inject_strategy"), INJECT_STRATEGIES, DEFAULTS.inject_strategy

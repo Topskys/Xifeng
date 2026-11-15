@@ -86,6 +86,9 @@ Python 签名 ↔ Rust 的转接。Python 侧保留纯 Python 基准实现，两
   只能在明确接受占麦后加 `--resident-mic`
 - 不要指望 VAD 只留 60ms padding —— Silero 起音判定有 100–250ms 延迟，
   首段 MUST 额外留 300ms，否则第一个音节的起音被切（「你好喂」→「好喂」，G39）
+- 不要再提供"左右均可"的热键 —— 左右 MUST 互斥（默认右 Ctrl），旧值
+  `ctrl`→右、`shift`→左；组合键（Ctrl+C）MUST 在 150ms 观察窗内静默丢弃，
+  不许靠录音循环事后作废（那时浮窗/开麦/ASR 会话已经发生，G40）
 - 不要松手立刻关流 —— 会丢最后 150–300ms，必须 `drain_ms`（G23）
 - 不要在托盘菜单里起 tkinter —— 主界面是 Web（`--web --tab`），`--gui` 只是旧版兜底
 - 不要按次加载模型 —— 模型常驻，启动 warmup 一次

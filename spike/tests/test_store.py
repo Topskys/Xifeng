@@ -150,6 +150,24 @@ def test_settings_roundtrip(store: Store) -> None:
     assert store.get_setting("filler_level") == "standard"
 
 
+def test_legacy_hotkey_value_normalized_to_one_side(store: Store) -> None:
+    """G40：旧值 `ctrl`/`shift` 曾表示"左右均可"，读出来必须落到具体一侧。
+
+    左右互斥后如果继续两侧都触发，用户设了哪一边都形同虚设；
+    归一在 settings.load 做，老库不用重写。
+    """
+    from voiceime_spike import settings
+
+    store.set_setting("hotkey", "ctrl")
+    assert settings.load(store).hotkey == "rctrl"
+    store.set_setting("hotkey", "shift")
+    assert settings.load(store).hotkey == "lshift"
+    store.set_setting("hotkey", "lctrl")
+    assert settings.load(store).hotkey == "lctrl"
+    store.set_setting("hotkey", "bogus")
+    assert settings.load(store).hotkey == settings.DEFAULTS.hotkey == "rctrl"
+
+
 # ---------------------------------------------------------------- 默认路径
 
 def test_default_path_honours_env(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

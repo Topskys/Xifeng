@@ -4,7 +4,9 @@
 //! 壳接管采集与编排，Python 只做 ASR 推理）。时序语义与 Python 版逐条对齐：
 //!
 //! ```text
-//! 单击触发：按下热键即开流（零等待弹浮窗）→ 保持按住说话 → 松开结束
+//! 单击触发：按下热键即开流（150ms 观察窗后弹浮窗）→ 保持按住说话 → 松开结束
+//! 观察窗：按下后 150ms 内出现其它键（Ctrl+C 等）= 组合键，静默丢弃不触发（G40）
+//! 热键左右互斥：设置右 Ctrl 时左 Ctrl 不触发（KeyPreset）
 //! 按住期间：Esc 取消 / 其它键落下=组合键整段丢弃 / 超时 60s 截断
 //! 松开：再收 drain_ms(120ms) 尾音 → 关流 → asr_end → 后处理 → 注入
 //! 按住 <250ms：误触，整段丢弃（不进 ASR）
@@ -33,6 +35,7 @@ use crate::py::PythonBridge;
 const MIN_HOLD_MS: u64 = 250; // 误触保护：按住不足直接丢弃
 const MAX_SECONDS: u64 = 60; // 单次录音上限
 const DRAIN_MS: u64 = 120; // 松手后继续收流的时长（G23 尾音）
+const COMBO_GUARD_MS: u64 = 150; // 组合键观察窗：按下后这段时间里有别的键 = 组合，不触发（G40）
 const SAMPLE_RATE: u32 = 16000; // ASR 输入采样率
 const FEED_INTERVAL_MS: u64 = 40; // 喂送窗口：每窗攒 ≥40ms 音频作为一批（P2-① 节流）
 
@@ -189,7 +192,7 @@ impl Mic {
         }
     }
 
-    /// 流是否在运行（tap1 预热后跳过会话处的重复开流）。
+    /// 流是否在运行（按下即开流后跳过会话处的重复开流）。
     fn running(&self) -> bool {
         self.stream.lock().unwrap().is_some()
     }
@@ -346,23 +349,59 @@ fn new_mic() -> Mic {
 
 // ---------------------------------------------------------------- 编排器
 
-/// 按住即录（单击触发）：等热键按下 → 立刻开流 → 返回。
-/// 返回 true = 录音开始；false = 收到退出信号（当前无退出通道，恒 true）。
+/// 按住即录（单击触发）：等热键按下 → 立刻开流 → 过组合键观察窗 → 返回按下时刻。
 ///
-/// 开流放在按下瞬间：cpal 实测 play→首回调仅 ~20ms（G23），后面 run() 的
-/// 录音循环接管——松开/组合键/Esc/误触判定都在那里。
-fn wait_for_press(hook: &Hook, vks: &[u32], mic: &mut Mic) -> bool {
+/// 开流放在按下瞬间：cpal 实测 play→首回调仅 ~20ms（G23），观察窗期间到达的
+/// 音频都留在环形缓冲里，`run()` 开始喂送时一并送进 ASR——所以观察窗**不丢句首**。
+///
+/// 组合键（G40）：按下后 `COMBO_GUARD_MS` 内出现任何其它键（含按下前就按住的
+/// Shift/Alt 等，也含窗口内按下又松开的极短敲击）→ 判定为组合键，静默丢弃
+/// （不开会话、不弹浮窗、不碰 ASR），等热键松开后重新等下一次按下。设成 150ms
+/// 是因为打字时 `Ctrl+C` 的 C 几乎与 Ctrl 同时落下，而人开口前的正常停顿远大于 150ms。
+fn wait_for_press(hook: &Hook, vks: &[u32], mic: &mut Mic) -> Instant {
     let poll = Duration::from_millis(hotkey::POLL_MS);
-    while !hook.pressed(vks) {
-        let _ = hook.drain_presses(); // 等待期组合无意义，丢弃
-        std::thread::sleep(poll);
-    }
-    if !mic.running() {
-        if let Err(e) = mic.start() {
-            eprintln!("[voice] {e}");
+    let guard = Duration::from_millis(COMBO_GUARD_MS);
+    loop {
+        while !hook.pressed(vks) {
+            let _ = hook.drain_presses(); // 等待期组合无意义，丢弃
+            std::thread::sleep(poll);
         }
+        let t_down = Instant::now();
+        if !mic.running() {
+            if let Err(e) = mic.start() {
+                eprintln!("[voice] {e}");
+            }
+        }
+        // 观察窗：组合键不触发。两条通道都看——
+        //   down_except：当前仍按住的其它键（Shift 可能早于 Ctrl 按下）
+        //   drain_presses：窗口内按下又松开的其它键（极短敲击不会留在 down 里）
+        // 注意先判一次再进循环：`mic.start()` 可能要上百毫秒（设备重开），
+        // 若等它返回才开始计时，观察窗会被整段跳过（实测 Shift+Ctrl 漏判）。
+        let guard = Duration::from_millis(COMBO_GUARD_MS);
+        let mut combo = false;
+        loop {
+            let pressed_other = hook
+                .drain_presses()
+                .iter()
+                .any(|vk| !vks.contains(vk) && *vk != VK_ESCAPE);
+            if pressed_other || !hook.down_except(vks).is_empty() {
+                combo = true;
+                break;
+            }
+            if t_down.elapsed() >= guard {
+                break;
+            }
+            std::thread::sleep(poll);
+        }
+        if !combo && hook.pressed(vks) {
+            return t_down;
+        }
+        // 组合键 / 观察窗内就松手（误触）：静默作废，等热键松开再重来
+        while hook.pressed(vks) {
+            std::thread::sleep(poll);
+        }
+        mic.stop_stream(); // 不进入会话就不占麦
     }
-    true
 }
 
 /// 一次语音会话的统计（只进日志，不含文本内容）。
@@ -391,7 +430,7 @@ pub struct VoiceSettings {
 
 impl VoiceSettings {
     /// 从 Python 核的 settings 解析。bridge 失败 → 全默认值
-    /// （KEY_CTRL / Auto / PostConfig::default / 纠错关），与旧 run() 同语义。
+    /// （KEY_RCTRL / Auto / PostConfig::default / 纠错关），与旧 run() 同语义。
     pub fn load(bridge: &PythonBridge) -> Self {
         let settings = bridge
             .call("bootstrap", serde_json::json!({}))
@@ -402,7 +441,7 @@ impl VoiceSettings {
             .and_then(|s| s.get("hotkey"))
             .and_then(|v| v.as_str())
             .map(hotkey::KeyPreset::parse)
-            .unwrap_or(hotkey::KEY_CTRL);
+            .unwrap_or(hotkey::KEY_RCTRL);
         // 配置错误显式报出来（inject.py 对未知策略是显式 Failed；壳侧设置是持久化值，
         // 静默兜底会掩盖拼错——至少 ERROR 级别喊出来。宁可功能可用，错误显眼。）
         let inject_strategy_raw = settings
@@ -509,12 +548,9 @@ pub fn run(
             let s = cfg.lock().unwrap();
             (s.vks.clone(), s.inject_cfg.clone(), s.post_cfg.clone(), s.model_correct, s.theme.clone())
         };
-        if !wait_for_press(&hook, &vks, &mut mic) {
-            mic.stop_stream(); // 编排收尾：不留常驻流
-            return;
-        }
-        // 浮窗随按下立即弹出（零等待）：按下瞬间已开流（实测 play→首回调
-        // 仅 ~20ms），浮窗不抢焦点（WS_EX_NOACTIVATE，见 main.rs），
+        let t_press = wait_for_press(&hook, &vks, &mut mic);
+        // 浮窗在观察窗通过后弹出（零等待的语义保留：观察窗 150ms 不可感，
+        // 音从按下瞬间就在采集）。浮窗不抢焦点（WS_EX_NOACTIVATE，见 main.rs），
         // 不污染稍后的焦点快照。
         if let Some(w) = app.get_webview_window("overlay") {
             let _ = app.emit("voice://theme", theme.as_str());
@@ -533,7 +569,7 @@ pub fn run(
         // Python 版先取焦点快照再录音（注入前校验"还是不是同一个窗口"）
         let snap = snapshot_focus();
 
-        // tap1 预热失败的兜底：会话开始处补开流（正常路径流已在跑，跳过）
+        // 开流失败的兜底：会话开始处补开一次（正常路径流已在跑，跳过）
         if !mic.running() {
             if let Err(e) = mic.start() {
                 eprintln!("[voice] {e}");
@@ -547,7 +583,8 @@ pub fn run(
         }
         let _ = hook.drain_presses(); // combo_base（会话开始前的新按键不算组合）
         mic.begin(&bridge, &app);
-        let t0 = Instant::now();
+        // 按住时长从**按下瞬间**算（含 150ms 观察窗），否则误触判定会少算这段
+        let t0 = t_press;
 
         // 录音循环：Esc 取消 > 组合键 > 松开 > 超时（与 record_ptt 同序）
         let mut stats = SessionStats {
@@ -562,13 +599,15 @@ pub fn run(
                 stats.cancelled = true;
                 break;
             }
+            // 组合键两条通道都要看：新按下（极短敲击也在队列里）+ 当前按住
+            //（Ctrl+Shift+C 的 Shift 可能早于 Ctrl 按下）
             let others: Vec<u32> = hook
                 .drain_presses()
                 .into_iter()
                 .filter(|vk| !vks.contains(vk) && *vk != VK_ESCAPE)
                 .collect();
-            if !others.is_empty() {
-                stats.combo = true; // Ctrl+其它键：整段丢弃
+            if !others.is_empty() || !hook.down_except(&vks).is_empty() {
+                stats.combo = true; // 组合键：整段丢弃
                 break;
             }
             if !hook.pressed(&vks) {

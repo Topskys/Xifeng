@@ -9,13 +9,15 @@
 
 钩子会看到所有按键，但代码只把 vkCode 与白名单比对，不记录、不落盘、不外发。
 
-键位约定（默认 Ctrl 长按）：
-- `ctrl`  左/右 Ctrl 任意一个（默认）
-- `lctrl` / `rctrl`  单独一侧
-- `rshift` / `lshift` / `shift`  备用
+键位约定（默认右 Ctrl 长按，**左右互斥**）：
+- `lctrl` / `rctrl`  左 / 右 Ctrl，各管一侧
+- `lshift` / `rshift`  左 / 右 Shift
+- `ctrl` / `shift`  **旧值兼容**（2026-11-14 前表示"左右均可"）：现在落到
+  默认一侧（`ctrl`→右、`shift`→左），不再两侧都触发
 
 风险：Ctrl 是高频修饰键，`Ctrl+C` 这类组合会触发一次极短录音。
-对策是 `min_hold_ms`（默认 250ms）：按住时间不足直接丢弃，不进入 ASR。
+Python 旧路径的对策是 `min_hold_ms`（默认 250ms）：按住不足直接丢弃；
+壳（D16 后的正式路径）另有组合键观察窗，见 G40。
 """
 
 from __future__ import annotations
@@ -41,15 +43,17 @@ VK_LCONTROL = 0xA2
 VK_RCONTROL = 0xA3
 
 KEYS: dict[str, tuple[int, ...]] = {
-    "ctrl": (VK_LCONTROL, VK_RCONTROL),
+    # 左右互斥（2026-11-14 用户要求）：只认设置的那一侧，另一侧完全不触发
     "lctrl": (VK_LCONTROL,),
     "rctrl": (VK_RCONTROL,),
-    "shift": (VK_LSHIFT, VK_RSHIFT),
     "lshift": (VK_LSHIFT,),
     "rshift": (VK_RSHIFT,),
+    # 旧值兼容：曾经表示"左右均可"，现在必须落在具体一侧
+    "ctrl": (VK_RCONTROL,),
+    "shift": (VK_LSHIFT,),
 }
 
-DEFAULT_KEY = "ctrl"
+DEFAULT_KEY = "rctrl"
 DEFAULT_MIN_HOLD_MS = 250
 DEFAULT_MAX_SECONDS = 60.0
 DEFAULT_POLL_MS = 10
@@ -478,12 +482,13 @@ def wait_for_double_tap(
 
 def describe_key(key: str) -> str:
     label = {
-        "ctrl": "Ctrl（左或右）",
         "lctrl": "左 Ctrl",
         "rctrl": "右 Ctrl",
-        "shift": "Shift（左或右）",
         "lshift": "左 Shift",
         "rshift": "右 Shift",
+        # 旧值兼容：显示落到的那一侧，不再说"左右均可"
+        "ctrl": "右 Ctrl",
+        "shift": "左 Shift",
     }.get(key, key)
     return f"{label} 长按"
 

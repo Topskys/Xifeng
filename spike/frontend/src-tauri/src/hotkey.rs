@@ -47,13 +47,14 @@ const WM_QUIT: u32 = 0x0012;
 pub const POLL_MS: u64 = 10;
 
 /// 键位预设：vk 组合（与 hotkey.py 的 KEYS 一致）。
+///
+/// **左右互斥**（2026-11-14 用户要求）：设置哪一侧就只认那一侧，按另一侧
+/// 完全不触发——没有"左右均可"的预设。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KeyPreset(&'static [u32]);
 
-pub const KEY_CTRL: KeyPreset = KeyPreset(&[VK_LCONTROL, VK_RCONTROL]);
 pub const KEY_LCTRL: KeyPreset = KeyPreset(&[VK_LCONTROL]);
 pub const KEY_RCTRL: KeyPreset = KeyPreset(&[VK_RCONTROL]);
-pub const KEY_SHIFT: KeyPreset = KeyPreset(&[VK_LSHIFT, VK_RSHIFT]);
 pub const KEY_LSHIFT: KeyPreset = KeyPreset(&[VK_LSHIFT]);
 pub const KEY_RSHIFT: KeyPreset = KeyPreset(&[VK_RSHIFT]);
 
@@ -62,15 +63,18 @@ impl KeyPreset {
         self.0
     }
 
-    /// 从设置里的 `hotkey` 字段解析；未知取值退回默认 ctrl（与 Python 一致）。
+    /// 从设置里的 `hotkey` 字段解析；未知取值退回默认（右 Ctrl）。
+    ///
+    /// 旧值 `ctrl` / `shift` 曾经表示"左右均可"，左右互斥后归一到默认一侧
+    /// （`ctrl`→右 Ctrl、`shift`→左 Shift）：老库不用重写，行为立刻变互斥。
     pub fn parse(s: &str) -> Self {
         match s {
             "lctrl" => KEY_LCTRL,
-            "rctrl" => KEY_RCTRL,
-            "shift" => KEY_SHIFT,
             "lshift" => KEY_LSHIFT,
             "rshift" => KEY_RSHIFT,
-            _ => KEY_CTRL,
+            "ctrl" => KEY_RCTRL,
+            "shift" => KEY_LSHIFT,
+            _ => KEY_RCTRL,
         }
     }
 }
@@ -114,6 +118,21 @@ impl HookShared {
     /// 取走自上次调用以来新按下的 vk 列表（不漏极短的敲击）。
     fn drain_presses(&self) -> Vec<u32> {
         std::mem::take(&mut *self.new_presses.lock().unwrap())
+    }
+
+    /// 当前按下的其它键（排除热键本身与 Esc），用于组合键判定。
+    ///
+    /// 为什么不能只看 `drain_presses`：`Ctrl+Shift+C` 里 Shift 可能早于 Ctrl
+    /// 按下，那时它不在新按键队列里，但确实是组合键（G40）。
+    fn down_except(&self, vks: &[u32]) -> Vec<u32> {
+        let down = self.down.lock().unwrap();
+        let mut out: Vec<u32> = down
+            .iter()
+            .copied()
+            .filter(|vk| !vks.contains(vk) && *vk != VK_ESCAPE)
+            .collect();
+        out.sort_unstable();
+        out
     }
 }
 
@@ -168,6 +187,11 @@ impl Hook {
 
     pub fn drain_presses(&self) -> Vec<u32> {
         self.shared.drain_presses()
+    }
+
+    /// 当前按下的其它键（排除热键与 Esc）——组合键判定用（G40）。
+    pub fn down_except(&self, vks: &[u32]) -> Vec<u32> {
+        self.shared.down_except(vks)
     }
 
     /// 收到的按键事件总数（诊断用，能区分"没按键"与"收不到事件"）。
@@ -277,5 +301,33 @@ fn hook_thread(ready: Sender<Result<Arc<HookShared>, i32>>) {
 
         let _ = UnhookWindowsHookEx(hook);
         shared.active.store(false, Ordering::SeqCst);
+    }
+}
+
+// ---------------------------------------------------------------- 单测
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 左右互斥：每个预设只含一侧的 vk（G40）
+    #[test]
+    fn presets_are_side_exclusive() {
+        assert_eq!(KEY_LCTRL.vks(), &[VK_LCONTROL]);
+        assert_eq!(KEY_RCTRL.vks(), &[VK_RCONTROL]);
+        assert_eq!(KEY_LSHIFT.vks(), &[VK_LSHIFT]);
+        assert_eq!(KEY_RSHIFT.vks(), &[VK_RSHIFT]);
+    }
+
+    /// 旧值 `ctrl`/`shift`（曾表示"左右均可"）归一到一个具体侧；
+    /// 未知值退回默认右 Ctrl——绝不能悄悄变回"两侧都触发"。
+    #[test]
+    fn parse_maps_legacy_values_to_one_side() {
+        assert_eq!(KeyPreset::parse("lctrl").vks(), &[VK_LCONTROL]);
+        assert_eq!(KeyPreset::parse("rctrl").vks(), &[VK_RCONTROL]);
+        assert_eq!(KeyPreset::parse("ctrl").vks(), &[VK_RCONTROL]);
+        assert_eq!(KeyPreset::parse("shift").vks(), &[VK_LSHIFT]);
+        assert_eq!(KeyPreset::parse("rshift").vks(), &[VK_RSHIFT]);
+        assert_eq!(KeyPreset::parse("bogus").vks(), &[VK_RCONTROL]);
     }
 }

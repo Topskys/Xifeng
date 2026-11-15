@@ -902,3 +902,41 @@ tail_pad_ms = 300  # 末段终点额外后留（韵母尾音）
 首末段是「宁可多留」，内部是「宁可少留」。改 VAD 参数必须跑 golden 用例，并让
 Python 基准与 `crates/ime-vad` 同步（本例 Rust 侧同样加了两个字段与两个单测）。
 
+## G40 热键：左右 Ctrl 互斥，组合键必须"完全不触发"
+
+**症状**（2026-11-14，单击触发版）：
+
+- 设置里选「左 Ctrl」后，按**右** Ctrl 照样冒浮窗——"设置哪一侧"形同虚设。
+- `Ctrl+C` / `Ctrl+V` 会闪一下浮窗；播放空会话（空文本不注入，但麦克风被开了一下）。
+
+**根因**：
+
+1. 旧键位预设里有"左右均可"（`ctrl`/`shift` 映射到两个 vk）。用户库里存的正是
+   `ctrl`，所以两侧都算数，选单侧也没用。
+2. 单击触发是"按下即开会话"：浮窗、`asr_begin`、开麦都在按下瞬间发生，而组合键
+   判定原本只在**录音循环**里做（`drain_presses`）——等它发现 C 已经按下，
+   副作用早就发生了：组合键等于"触发了一个立刻作废的会话"。
+
+**解法**：
+
+- **预设只保留单侧**：`lctrl` / `rctrl` / `lshift` / `rshift`，默认**右 Ctrl**。
+  旧值 `ctrl`→右、`shift`→左，在 `settings.load` 与 `KeyPreset::parse` 双端归一，
+  老库不用重写、UI 显示真实生效的那一侧。
+- **观察窗前移防线**：`COMBO_GUARD_MS=150`。按下后 150ms 内出现任何其它键
+  （含按下**之前**就按住的 Shift/Alt——`Hook::down_except` 看的是"当前按住"，
+  而 `drain_presses` 只看"新按下"）→ 静默丢弃：不弹浮窗、不发 `asr_begin`、
+  立刻收流，等热键松开再等下一次按下。
+- **不能因此丢句首**：开麦仍在按下瞬间，feeder 要等 `asr_begin` 之后才启动，
+  观察窗里的音频就留在环形缓冲里，会话开始后一并送进 ASR。
+- **按住时长从按下瞬间计**（含观察窗）。否则 300ms 的正常短句会被算成 150ms
+  < `MIN_HOLD_MS(250)`，误触判定反而误伤。
+
+**验证**：`cargo test`（壳）15 绿，其中 `presets_are_side_exclusive`、
+`parse_maps_legacy_values_to_one_side`；pytest 的
+`test_hotkey_sides_are_exclusive`、`test_legacy_hotkey_value_normalized_to_one_side`。
+
+**教训**：触发方式从"双击（天然过滤组合键）"换成"按下即触发"后，组合键的防线
+必须**前移到触发之前**；放在录音循环里只能补救输出，补不了已经发生的副作用
+（浮窗、开麦、ASR 会话）。
+
+

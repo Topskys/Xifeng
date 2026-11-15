@@ -57,9 +57,16 @@ def scripted(states: list[bool]):
     return _check
 
 
-def test_ctrl_alias_covers_both_sides() -> None:
-    assert hotkey.KEYS["ctrl"] == (hotkey.VK_LCONTROL, hotkey.VK_RCONTROL)
+def test_hotkey_sides_are_exclusive() -> None:
+    """G40：左右互斥——每个预设只认一侧；旧值 ctrl/shift 归一到一个侧。"""
+    assert hotkey.KEYS["lctrl"] == (hotkey.VK_LCONTROL,)
     assert hotkey.KEYS["rctrl"] == (hotkey.VK_RCONTROL,)
+    assert hotkey.KEYS["lshift"] == (hotkey.VK_LSHIFT,)
+    assert hotkey.KEYS["rshift"] == (hotkey.VK_RSHIFT,)
+    # 旧值兼容：不再"两侧都触发"
+    assert hotkey.KEYS["ctrl"] == (hotkey.VK_RCONTROL,)
+    assert hotkey.KEYS["shift"] == (hotkey.VK_LSHIFT,)
+    assert hotkey.DEFAULT_KEY == "rctrl"
 
 
 def test_default_opener_binds_sample_rate(monkeypatch) -> None:
@@ -272,8 +279,10 @@ def test_record_ptt_passes_wait_hint_through() -> None:
     assert hints == []       # 立刻就按到了，不该提示
 
 
-def test_describe_key_mentions_both_sides() -> None:
-    assert "左或右" in hotkey.describe_key("ctrl")
+def test_describe_key_mentions_one_side() -> None:
+    """G40：描述里不再出现"左右均可"，旧值显示真实生效的那一侧。"""
+    assert "左或右" not in hotkey.describe_key("ctrl")
+    assert hotkey.describe_key("ctrl") == hotkey.describe_key("rctrl")
     assert "右" in hotkey.describe_key("rctrl")
 
 

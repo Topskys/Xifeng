@@ -351,8 +351,11 @@ fn new_mic() -> Mic {
 
 /// 按住即录（单击触发）：等热键按下 → 立刻开流 → 过组合键观察窗 → 返回按下时刻。
 ///
-/// 开流放在按下瞬间：cpal 实测 play→首回调仅 ~20ms（G23），观察窗期间到达的
-/// 音频都留在环形缓冲里，`run()` 开始喂送时一并送进 ASR——所以观察窗**不丢句首**。
+/// 开流放在按下瞬间：cpal 的 `play→首回调` 仅 ~20ms，但 `build_input_stream`
+/// （WASAPI 初始化）本身要 120–150ms（引擎热）到 450–800ms（空闲 >5s 后引擎已回收，
+/// 见 G41），所以"按下即开流"并不等于零等待——浮窗就是在这之后才弹，
+/// 它如实表示"麦克风已经真的在采了"。观察窗期间到达的音频留在环形缓冲里，
+/// `run()` 开始喂送时一并送进 ASR——所以观察窗本身**不丢句首**。
 ///
 /// 组合键（G40）：按下后 `COMBO_GUARD_MS` 内出现任何其它键（含按下前就按住的
 /// Shift/Alt 等，也含窗口内按下又松开的极短敲击）→ 判定为组合键，静默丢弃
@@ -360,7 +363,6 @@ fn new_mic() -> Mic {
 /// 是因为打字时 `Ctrl+C` 的 C 几乎与 Ctrl 同时落下，而人开口前的正常停顿远大于 150ms。
 fn wait_for_press(hook: &Hook, vks: &[u32], mic: &mut Mic) -> Instant {
     let poll = Duration::from_millis(hotkey::POLL_MS);
-    let guard = Duration::from_millis(COMBO_GUARD_MS);
     loop {
         while !hook.pressed(vks) {
             let _ = hook.drain_presses(); // 等待期组合无意义，丢弃

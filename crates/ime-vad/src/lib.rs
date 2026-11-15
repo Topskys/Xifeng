@@ -20,6 +20,11 @@ pub struct VadConfig {
     pub min_speech_ms: i32,
     pub merge_gap_ms: i32,
     pub pad_ms: i32,
+    /// 首段起点额外留白：Silero 起音判定有 100–250ms 延迟，按 pad_ms 裁会
+    /// 切掉第一个音节的起音（G39）。
+    pub head_pad_ms: i32,
+    /// 末段终点额外留白（韵母尾音）。
+    pub tail_pad_ms: i32,
 }
 
 impl Default for VadConfig {
@@ -36,6 +41,8 @@ impl Default for VadConfig {
             min_speech_ms: 250,
             merge_gap_ms: 200,
             pad_ms: 60,
+            head_pad_ms: 300,
+            tail_pad_ms: 300,
         }
     }
 }
@@ -121,10 +128,22 @@ fn finalize(raw: &[(usize, usize)], pcm_len: usize, cfg: &VadConfig) -> Vec<(usi
         }
     }
 
+    // 首段起点 / 末段终点额外留白（G39）：Silero 起音判定有 100–250ms 延迟，
+    // 按 pad_ms 裁会切掉第一个音节的起音。内部边界仍用 pad_ms——merge_gap_ms
+    // 已保证段间距离，两侧各扩 pad_ms 不会重叠；大 padding 会重叠出重复音频，
+    // 反而诱发复读。
     let pad = (cfg.sample_rate as i64 * cfg.pad_ms as i64 / 1000) as usize;
+    let head = (cfg.sample_rate as i64 * cfg.head_pad_ms as i64 / 1000) as usize;
+    let tail = (cfg.sample_rate as i64 * cfg.tail_pad_ms as i64 / 1000) as usize;
+    let last = merged.len().saturating_sub(1);
     merged
         .into_iter()
-        .map(|(s, e)| (s.saturating_sub(pad), (e + pad).min(pcm_len)))
+        .enumerate()
+        .map(|(i, (s, e))| {
+            let left = if i == 0 { head } else { pad };
+            let right = if i == last { tail } else { pad };
+            (s.saturating_sub(left), (e + right).min(pcm_len))
+        })
         .collect()
 }
 
@@ -341,6 +360,37 @@ mod tests {
         // padding 60ms 会向外扩，但必须覆盖有声区
         assert!(s <= vs, "段首 {s} 应不晚于有声起点 {vs}");
         assert!(e >= ve, "段尾 {e} 应不早于有声终点 {ve}");
+    }
+
+    #[test]
+    fn head_pad_keeps_onset_before_first_active_frame() {
+        // G39：首段起点要额外留白（head_pad_ms），否则 Silero 的起音延迟会把
+        // 第一个音节的起音切掉。
+        let (pcm, _vs, _ve) = make_pcm(500, 1000, 16000, 3000);
+        let cfg = VadConfig::default();
+        let (s, _) = segment(&pcm, &cfg)[0];
+        let no_pad = VadConfig { head_pad_ms: 0, tail_pad_ms: 0, ..cfg.clone() };
+        let (s_no, _) = segment(&pcm, &no_pad)[0];
+        let head = (16000 * cfg.head_pad_ms / 1000) as usize;
+        assert_eq!(s_no - s, head.min(s_no), "首段应额外前留 {head} 样本");
+    }
+
+    #[test]
+    fn internal_boundary_pad_stays_small() {
+        // 内部边界仍按 pad_ms 扩（不重叠出重复音频）
+        let sr = 16000usize;
+        let burst: Vec<i16> = (0..sr / 2)
+            .map(|i| if i % 2 == 0 { 3000 } else { -3000 })
+            .collect();
+        let mut pcm = vec![0i16; sr / 2];
+        pcm.extend_from_slice(&burst);
+        pcm.extend(std::iter::repeat(0i16).take(sr * 4 / 10)); // 400ms > merge_gap 200ms
+        pcm.extend_from_slice(&burst);
+        pcm.extend(std::iter::repeat(0i16).take(sr / 2));
+        let cfg = VadConfig::default();
+        let segs = segment(&pcm, &cfg);
+        assert_eq!(segs.len(), 2, "应切出 2 段: {segs:?}");
+        assert!(segs[1].0 >= segs[0].1, "内部边界不该重叠: {segs:?}");
     }
 
     #[test]

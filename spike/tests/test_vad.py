@@ -38,6 +38,32 @@ def test_short_burst_dropped() -> None:
     assert vad.segment(pcm) == []
 
 
+def test_head_pad_extends_first_segment() -> None:
+    """G39：首段起点额外留白，否则 Silero 起音延迟会切掉第一个音节。"""
+    pcm = np.concatenate([_silence(0.5), synth_speech_like(1.5), _silence(0.5)])
+    head = int(SR * vad.VadConfig().head_pad_ms / 1000)
+    with_head = vad.segment(pcm, vad.VadConfig())[0][0]
+    without = vad.segment(pcm, vad.VadConfig(head_pad_ms=0, tail_pad_ms=0))[0][0]
+    # 段首应比「不留白」提前 head（受 0 截断）
+    assert without - with_head == min(head, without)
+
+
+def test_internal_boundary_pad_stays_small() -> None:
+    """内部边界只按 pad_ms 扩：留太多会重叠出重复音频，诱发复读。"""
+    pcm = np.concatenate(
+        [
+            _silence(0.3),
+            synth_speech_like(0.8),
+            _silence(0.8),          # > merge_gap_ms(200)
+            synth_speech_like(0.8),
+            _silence(0.3),
+        ]
+    )
+    segs = vad.segment(pcm)
+    assert len(segs) == 2
+    assert segs[1][0] >= segs[0][1], f"内部边界不该重叠: {segs}"
+
+
 # ---------------------------------------------------------------- 首尾静音裁剪
 
 def test_trim_removes_lead_and_tail_silence() -> None:

@@ -5,7 +5,9 @@ M1 起主路径是 sherpa-onnx 的 Silero VAD：逐 512 样本窗出语音概率
 缺失时的回退，二者共享同一套"丢弃过短 / 合并相近 / 加 padding"后处理。
 
 参数与 docs/01-overview/latency-budget.md、spec 保持一致：
-start_prob=0.5 / end_prob=0.35；G4：丢弃段两侧 MUST 留 60ms 缓冲。
+start_prob=0.5 / end_prob=0.35；G4：丢弃段两侧 MUST 留 60ms 缓冲；
+G39：首段起点 / 末段终点额外留 300ms（Silero 起音判定有 100–250ms 延迟，
+按 60ms 裁会把第一个音节的起音切掉，「你好喂」→「好喂」）。
 """
 
 from __future__ import annotations
@@ -48,6 +50,8 @@ def _cfg_kwargs(cfg: "VadConfig") -> dict:
         min_speech_ms=cfg.min_speech_ms,
         merge_gap_ms=cfg.merge_gap_ms,
         pad_ms=cfg.pad_ms,
+        head_pad_ms=cfg.head_pad_ms,
+        tail_pad_ms=cfg.tail_pad_ms,
     )
 
 
@@ -77,6 +81,8 @@ class VadConfig:
     min_speech_ms: int = 250    # 短于此的段整段丢弃
     merge_gap_ms: int = 200     # 间隔小于此合并
     pad_ms: int = 60            # 两侧保留缓冲（G4）
+    head_pad_ms: int = 300      # 首段起点额外留白（G39：Silero 起音延迟会吃掉首字）
+    tail_pad_ms: int = 300      # 末段终点额外留白（韵母尾音）
 
 
 def _frames(pcm: np.ndarray, frame_len: int, hop: int) -> list[np.ndarray]:
@@ -112,8 +118,23 @@ def _finalize(
             merged.append((s, e))
 
     # 3) 加 padding 并裁剪
+    #
+    # G39：首段起点、末段终点要留得比内部边界宽得多。Silero 的起音判定有
+    # 100–250ms 延迟（start_prob 需连续 3 窗确认），按 pad_ms=60 裁会把第一
+    # 个音节的起音切掉（实测「你好喂」→「好喂」）。内部边界仍用 pad_ms：
+    # 合并时已保证段间 ≥ merge_gap_ms，两侧各扩 60ms 不会重叠——若内部也用
+    # 大 padding 会重叠出重复音频，反而诱发复读。
     pad = int(cfg.sample_rate * cfg.pad_ms / 1000)
-    return [(max(0, s - pad), min(pcm_len, e + pad)) for s, e in merged]
+    head = int(cfg.sample_rate * cfg.head_pad_ms / 1000)
+    tail = int(cfg.sample_rate * cfg.tail_pad_ms / 1000)
+    last = len(merged) - 1
+    return [
+        (
+            max(0, s - (head if i == 0 else pad)),
+            min(pcm_len, e + (tail if i == last else pad)),
+        )
+        for i, (s, e) in enumerate(merged)
+    ]
 
 
 def segment(pcm: np.ndarray, cfg: VadConfig | None = None) -> list[tuple[int, int]]:
@@ -207,6 +228,7 @@ def probs_to_segments(
             start_prob=cfg.start_prob, end_prob=cfg.end_prob,
             start_frames=cfg.start_frames, end_frames=cfg.end_frames,
             min_speech_ms=0, merge_gap_ms=0, pad_ms=0,
+            head_pad_ms=0, tail_pad_ms=0,
         )
         return [(int(s), int(e)) for s, e in
                 _rs.vad_segment_from_probs(list(probs), window, total,

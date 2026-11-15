@@ -310,6 +310,11 @@ ASR 因此拿到半句话（或空音频）。两处丢音，原因不同：
 所以"按下热键才 `start()`"必然吃掉句首 —— 而"不按键就关麦"又要求必须按下才开流，
 两者只能取舍（默认按需开麦，见下方对策与代价）。
 
+> **2026-11-14 复测（D16 后的壳侧 cpal）**：Tauri 壳的采集换成 cpal 后，
+> `play→首回调` 实测 **17–24ms**，上表是旧 sounddevice/PortAudio 栈的数字。
+> 因此「按下即开流 + 立刻弹浮窗」本身就等于零等待，不必再用 `wait_live` 等流；
+> B 段的 `drain_ms` 仍然必需。
+
 **B. 松手立刻 `stop()` 丢掉宿主缓冲里的尾音**（按住 1.50s，同一份代码只改参数）：
 
 | `latency` | drain | 实收 | 偏差 |
@@ -853,3 +858,47 @@ powershell -c "Unblock-File 'D:\env\VoiceIME_0.1.0_x64-setup.exe'"
 （maturin、link.exe、NSIS 安装器）都可能踩同一个 ACL 坑，
 统一解法都是把 `TEMP`/`TMP` 指到 `D:\env\tmp`；
 **交付物 exe 必须先离开 Low 标签目录再分发/运行**（G24 的又一实证）。
+
+## G39 VAD 只留 60ms padding：Silero 起音延迟吃掉第一个音节
+
+**症状**（2026-11-14，壳 cpal 采集 + `use_vad=1`）：按住说「你好喂，今天天气不错」，
+注入的是「好喂今天天气不错」——**只有句首第一个字丢**，其余全对；长按提前开口也一样。
+
+**先排除的**（都不是原因，别重复踩）：
+
+| 怀疑点 | 对照结果 |
+|---|---|
+| 采集丢句首 | `in_frames` 与按住时长对得上（95840 帧 = 5.99s），会话音频里语音起点在 2900ms，流早已活着 |
+| `trim_silence` | `trim` 开/关、整段、40ms 分批喂，全部输出完整的 9 字 |
+| ASR 模型/解码 | 同一段音频离线跑 `use_vad=False` → 「你好喂今天天气不错」 |
+
+**根因**：同一段音频跑 `use_vad=True` 精确复现 8 字。Silero 切出的首段是
+`(3076ms, 5990ms)`，而 10ms RMS 显示真实语音从 **2908ms** 起振
+（`…13,13,208,508,1004…`）——起音落在 VAD 边界之前 100–180ms。
+Silero 需要连续 3 个窗 ≥ `start_prob` 才确认「开口」，确认点必然晚于真实起音；
+而 `pad_ms=60` 只够盖住 60ms，第一个音节的声母（「你」的 n-）就被切掉了。
+
+**解法**：`VadConfig` 加两个字段，**只作用于首/末段**：
+
+```python
+pad_ms = 60        # 内部边界：段间已有 merge_gap_ms(200) 保证，两侧各 60 不重叠
+head_pad_ms = 300  # 首段起点额外前留（G39）
+tail_pad_ms = 300  # 末段终点额外后留（韵母尾音）
+```
+
+内部边界 MUST 继续用 60ms：合并阈值 `merge_gap_ms=200` 是「段间距 < 200ms 就合并」，
+若内部也扩 300ms，两个已合并段之外的边界会**重叠出重复音频**，反而诱发模型复读。
+
+**验证**：
+
+- 同段音频 `use_vad=True` → 「你好喂今天天气不错」（9 字）；首段多留 300ms 即可复原
+- `cargo test -p ime-vad`：`head_pad_keeps_onset_before_first_active_frame`、
+  `internal_boundary_pad_stays_small`
+- `spike/tests/test_vad.py`：`test_head_pad_extends_first_segment`、
+  `test_internal_boundary_pad_stays_small`；`test_vad_parity.py` 把 head/tail 纳入 kwargs
+- e2e 实测：单击按住说两遍，`chars=9` × 2，`outcome=Injected`
+
+**教训**：VAD padding 不是「越宽越安全」——**首末段和内部边界的语义相反**：
+首末段是「宁可多留」，内部是「宁可少留」。改 VAD 参数必须跑 golden 用例，并让
+Python 基准与 `crates/ime-vad` 同步（本例 Rust 侧同样加了两个字段与两个单测）。
+

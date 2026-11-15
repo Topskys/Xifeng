@@ -76,6 +76,8 @@ fn vad_cfg(
     min_speech_ms: i32,
     merge_gap_ms: i32,
     pad_ms: i32,
+    head_pad_ms: i32,
+    tail_pad_ms: i32,
 ) -> VadConfig {
     VadConfig {
         sample_rate,
@@ -89,6 +91,8 @@ fn vad_cfg(
         min_speech_ms,
         merge_gap_ms,
         pad_ms,
+        head_pad_ms,
+        tail_pad_ms,
     }
 }
 
@@ -134,7 +138,8 @@ fn pcm_to_py(py: Python<'_>, pcm: &[i16]) -> PyResult<Py<PyAny>> {
 #[pyo3(signature = (
     pcm, sample_rate = 16000, frame_ms = 30, start_ratio = 0.5, end_ratio = 0.35,
     start_prob = 0.5, end_prob = 0.35, start_frames = 3, end_frames = 8,
-    min_speech_ms = 250, merge_gap_ms = 200, pad_ms = 60
+    min_speech_ms = 250, merge_gap_ms = 200, pad_ms = 60,
+    head_pad_ms = 300, tail_pad_ms = 300
 ))]
 #[allow(clippy::too_many_arguments)]
 fn vad_segment(
@@ -150,10 +155,13 @@ fn vad_segment(
     min_speech_ms: i32,
     merge_gap_ms: i32,
     pad_ms: i32,
+    head_pad_ms: i32,
+    tail_pad_ms: i32,
 ) -> PyResult<Vec<(usize, usize)>> {
     let cfg = vad_cfg(
         sample_rate, frame_ms, start_ratio, end_ratio, start_prob, end_prob,
         start_frames, end_frames, min_speech_ms, merge_gap_ms, pad_ms,
+        head_pad_ms, tail_pad_ms,
     );
     let data = pcm_from_py(pcm)?;
     Ok(ime_vad::segment(&data, &cfg))
@@ -165,7 +173,8 @@ fn vad_segment(
     probs, window = 512, total_samples = 0,
     sample_rate = 16000, frame_ms = 30, start_ratio = 0.5, end_ratio = 0.35,
     start_prob = 0.5, end_prob = 0.35, start_frames = 3, end_frames = 8,
-    min_speech_ms = 250, merge_gap_ms = 200, pad_ms = 60
+    min_speech_ms = 250, merge_gap_ms = 200, pad_ms = 60,
+    head_pad_ms = 300, tail_pad_ms = 300
 ))]
 #[allow(clippy::too_many_arguments)]
 fn vad_segment_from_probs(
@@ -183,10 +192,13 @@ fn vad_segment_from_probs(
     min_speech_ms: i32,
     merge_gap_ms: i32,
     pad_ms: i32,
+    head_pad_ms: i32,
+    tail_pad_ms: i32,
 ) -> Vec<(usize, usize)> {
     let cfg = vad_cfg(
         sample_rate, frame_ms, start_ratio, end_ratio, start_prob, end_prob,
         start_frames, end_frames, min_speech_ms, merge_gap_ms, pad_ms,
+        head_pad_ms, tail_pad_ms,
     );
     let total = if total_samples == 0 {
         probs.len() * window

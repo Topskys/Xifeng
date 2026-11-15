@@ -27,6 +27,8 @@ def _cfg_kwargs(cfg: vad.VadConfig) -> dict:
         min_speech_ms=cfg.min_speech_ms,
         merge_gap_ms=cfg.merge_gap_ms,
         pad_ms=cfg.pad_ms,
+        head_pad_ms=cfg.head_pad_ms,
+        tail_pad_ms=cfg.tail_pad_ms,
     )
 
 
@@ -109,7 +111,8 @@ def test_probs_parity(name: str, probs: list[float]) -> None:
         probs, window, total, **_cfg_kwargs(cfg))]
     # probs_to_segments 不含 finalize，Rust 的 segment_from_probs 含；
     # 这里对比"未 finalize"的语义：Rust 传 pad_ms=0 且 min_speech=0 才等价
-    cfg2 = vad.VadConfig(pad_ms=0, min_speech_ms=0, merge_gap_ms=0)
+    cfg2 = vad.VadConfig(pad_ms=0, min_speech_ms=0, merge_gap_ms=0,
+                         head_pad_ms=0, tail_pad_ms=0)
     rust_raw = [tuple(x) for x in rs.vad_segment_from_probs(
         probs, window, total, **_cfg_kwargs(cfg2))]
     assert rust_raw == py, f"{name}: rust={rust_raw} py={py}"

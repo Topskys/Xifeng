@@ -4,11 +4,11 @@
 //! 壳接管采集与编排，Python 只做 ASR 推理）。时序语义与 Python 版逐条对齐：
 //!
 //! ```text
-//! 双击触发：单击（≤300ms 即松开）→ 500ms 内再次按下并保持 → 录音开始
+//! 单击触发：按下热键即开流（零等待弹浮窗）→ 保持按住说话 → 松开结束
 //! 按住期间：Esc 取消 / 其它键落下=组合键整段丢弃 / 超时 60s 截断
 //! 松开：再收 drain_ms(120ms) 尾音 → 关流 → asr_end → 后处理 → 注入
 //! 按住 <250ms：误触，整段丢弃（不进 ASR）
-//! 不按键时麦克风完全关闭（按需开麦，G23：开流有 95–376ms 静默期）
+//! 不按键时麦克风完全关闭（按需开麦；cpal 实测 play→首回调 ~20ms）
 //! ```
 //!
 //! 与 Python 版的结构差异（等价性不受影响）：
@@ -30,8 +30,6 @@ use crate::inject::{inject_ex, snapshot_focus, InjectConfig, InjectOutcome, Inje
 use crate::py::PythonBridge;
 
 // 时序常量（与 hotkey.py 的默认值一致）
-const TAP_MS: u64 = 300; // 单击判定：按住 ≤300ms 即松开才算单击
-const GAP_MS: u64 = 500; // 单击 → 第二击的间隔上限
 const MIN_HOLD_MS: u64 = 250; // 误触保护：按住不足直接丢弃
 const MAX_SECONDS: u64 = 60; // 单次录音上限
 const DRAIN_MS: u64 = 120; // 松手后继续收流的时长（G23 尾音）
@@ -90,11 +88,6 @@ impl Ring {
     /// 累计丢弃样本数（满则丢新数据，可观测性：会话结束时报进日志）。
     fn dropped_count(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
-    }
-
-    /// 当前缓冲里的样本数（head-tail；wait_live 用它判断流是否已产出数据）。
-    fn len(&self) -> usize {
-        self.head.load(Ordering::Acquire) - self.tail.load(Ordering::Relaxed)
     }
 }
 
@@ -201,23 +194,10 @@ impl Mic {
         self.stream.lock().unwrap().is_some()
     }
 
-    /// 只停流不动喂送（双击失败的 attempt 收尾用：立刻释放麦克风）。
+    /// 只停流不动喂送（asr_begin 失败等收尾用：立刻释放麦克风）。
     fn stop_stream(&mut self) {
         let stream = self.stream.lock().unwrap().take();
         drop(stream);
-    }
-
-    /// 等采集流产出第一批样本（G23：开流后 95-376ms 才有回调）。
-    /// 超时也返回 false（调用方照常继续，只是句首可能缺）——不能卡死编排。
-    fn wait_live(&self, timeout: Duration) -> bool {
-        let t0 = Instant::now();
-        while t0.elapsed() < timeout {
-            if self.ring.len() > 0 {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        false
     }
 }
 
@@ -366,64 +346,23 @@ fn new_mic() -> Mic {
 
 // ---------------------------------------------------------------- 编排器
 
-/// 双击状态机（`hotkey.py:wait_for_double_tap` 的等价移植）。
+/// 按住即录（单击触发）：等热键按下 → 立刻开流 → 返回。
 /// 返回 true = 录音开始；false = 收到退出信号（当前无退出通道，恒 true）。
 ///
-/// G23 句首保护：tap1 按下即开流——开流静默期（95-376ms）与双击 gap 重叠，
-/// tap1 起的音频留在环形缓冲里，会话开始后一并喂 ASR，句首不再被割。
-/// 非 double（按住太久/组合键/gap 超时）→ 立刻收流，不占麦。
-fn wait_for_double_tap(hook: &Hook, vks: &[u32], mic: &mut Mic) -> bool {
+/// 开流放在按下瞬间：cpal 实测 play→首回调仅 ~20ms（G23），后面 run() 的
+/// 录音循环接管——松开/组合键/Esc/误触判定都在那里。
+fn wait_for_press(hook: &Hook, vks: &[u32], mic: &mut Mic) -> bool {
     let poll = Duration::from_millis(hotkey::POLL_MS);
-    loop {
-        // -- 阶段 1：等 tap1 按下
-        while !hook.pressed(vks) {
-            let _ = hook.drain_presses(); // 等待期组合无意义，丢弃
-            std::thread::sleep(poll);
-        }
-        // tap1 按下即开流预热（失败不阻塞：会话开始处还有兜底）
-        if !mic.running() {
-            if let Err(e) = mic.start() {
-                eprintln!("[voice] {e}");
-            }
-        }
-        let t_down = Instant::now();
-        let mut held_long = false;
-        // -- 阶段 2：tap1 按住中 —— 必须在 tap_ms 内松开才是单击
-        while hook.pressed(vks) {
-            let others = hook.drain_presses();
-            // 组合键 → 作废（等松开由本循环完成，重开阶段 1）
-            if others.iter().any(|vk| !vks.contains(vk) && *vk != VK_ESCAPE) {
-                held_long = true;
-            }
-            if t_down.elapsed().as_millis() as u64 > TAP_MS {
-                held_long = true; // 按住太久 → 不是单击
-            }
-            if held_long {
-                mic.stop_stream(); // 已确定不是双击：立刻收流
-            }
-            std::thread::sleep(poll);
-        }
-        if held_long {
-            continue;
-        }
-        // -- 阶段 3：gap 内等第二次按下
-        let deadline = Instant::now() + Duration::from_millis(GAP_MS);
-        let mut combo = false;
-        while Instant::now() < deadline {
-            let others = hook.drain_presses();
-            if others.iter().any(|vk| !vks.contains(vk) && *vk != VK_ESCAPE) {
-                combo = true; // 组合 → 作废，重来
-                break;
-            }
-            if hook.pressed(vks) {
-                return true; // tap2 按下且保持 → 录音开始（流保持运行，预热样本已在环里）
-            }
-            std::thread::sleep(poll);
-        }
-        // gap 超时/组合：attempt 失败，收流再进下一轮
-        mic.stop_stream();
-        let _ = combo;
+    while !hook.pressed(vks) {
+        let _ = hook.drain_presses(); // 等待期组合无意义，丢弃
+        std::thread::sleep(poll);
     }
+    if !mic.running() {
+        if let Err(e) = mic.start() {
+            eprintln!("[voice] {e}");
+        }
+    }
+    true
 }
 
 /// 一次语音会话的统计（只进日志，不含文本内容）。
@@ -551,7 +490,7 @@ pub fn run(
         *slot = VoiceSettings::load(&bridge); // 首次装载（命令热更前这里也可能被调）
         let s = &*slot;
         eprintln!(
-            "[voice] 双击热键后保持长按说话，松开输入；Esc 取消；按需开麦 \
+            "[voice] 按住热键说话，松开输入；Esc 取消；按需开麦 \
              （热键按键={:?} 注入策略={:?} 填充词={:?} 纠错={}）",
             s.vks,
             s.inject_cfg.strategy,
@@ -570,15 +509,13 @@ pub fn run(
             let s = cfg.lock().unwrap();
             (s.vks.clone(), s.inject_cfg.clone(), s.post_cfg.clone(), s.model_correct, s.theme.clone())
         };
-        if !wait_for_double_tap(&hook, &vks, &mut mic) {
+        if !wait_for_press(&hook, &vks, &mut mic) {
             mic.stop_stream(); // 编排收尾：不留常驻流
             return;
         }
-        // G23：tap1 已开流预热，这里等第一个回调到达（麦克风真正"活"了）再弹
-        // 浮窗——浮窗出现 == 可以开口，与旧版「准备提示消失后再说话」同语义。
-        // 预热未及（快速双击）时最多等 500ms，超时照常弹。
-        mic.wait_live(Duration::from_millis(500));
-        // 浮窗弹出不抢焦点（WS_EX_NOACTIVATE，见 main.rs），不污染焦点快照
+        // 浮窗随按下立即弹出（零等待）：按下瞬间已开流（实测 play→首回调
+        // 仅 ~20ms），浮窗不抢焦点（WS_EX_NOACTIVATE，见 main.rs），
+        // 不污染稍后的焦点快照。
         if let Some(w) = app.get_webview_window("overlay") {
             let _ = app.emit("voice://theme", theme.as_str());
             let _ = w.show();

@@ -28,6 +28,24 @@ def test_bootstrap_shape(api):
     json.dumps(b)  # JSON 可序列化
 
 
+def test_version_key_orders_numerically():
+    assert webgui.version_key("v0.10.0") > webgui.version_key("0.9.0")
+    assert webgui.version_key("v1.0.0") == webgui.version_key("1.0")
+    assert webgui.version_key("0.2.0-rc1") > webgui.version_key("0.1.9")
+    assert webgui.version_key("bad") == (0, 0, 0, 0)
+
+
+def test_check_update_missing_release_is_explicit(monkeypatch):
+    import urllib.error
+
+    def boom(*_a, **_k):
+        raise urllib.error.HTTPError("u", 404, "Not Found", None, None)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(webgui.urllib.request, "urlopen", boom)
+    r = webgui.Api.check_update(None)  # self 不参与，只验证 404 分支
+    assert "Release" in r["error"]
+
+
 import json  # noqa: E402
 
 

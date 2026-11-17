@@ -38,6 +38,20 @@ PORT = 8642  # 与 frontend/vite.config.ts 的 dev 代理一致
 PAGES = ("stats", "models", "config", "history", "about")
 
 
+def version_key(text: str) -> tuple[int, ...]:
+    """`v1.2.3-rc1` → `(1, 2, 3)`；按数字段比较，避免字符串比较把 0.10 判小于 0.9。"""
+    out: list[int] = []
+    for part in str(text).strip().lstrip("vV").split(".")[:4]:
+        head = ""
+        for ch in part:
+            if not ch.isdigit():
+                break
+            head += ch
+        out.append(int(head) if head else 0)
+    out += [0] * (4 - len(out))   # 补齐，1.0 与 1.0.0 必须相等
+    return tuple(out)
+
+
 def find_browser() -> str | None:
     """界面窗口用 Chrome（用户指定）；Chrome 不存在才回退 Edge。"""
     for p in CHROME_CANDIDATES:
@@ -340,18 +354,21 @@ class Api:
     def check_update(self) -> dict:
         """查 GitHub latest release 版本；网络失败显式返回错误。"""
         import json as _json
+        import urllib.error
         import urllib.request
 
+        url = f"https://api.github.com/repos/{REPO}/releases/latest"
         try:
-            req = urllib.request.Request(
-                f"https://api.github.com/repos/{REPO}/releases/latest",
-                headers={"User-Agent": "xifeng"},
-            )
+            req = urllib.request.Request(url, headers={"User-Agent": "xifeng"})
             with urllib.request.urlopen(req, timeout=6) as r:
                 data = _json.loads(r.read().decode("utf-8"))
-            latest = str(data.get("tag_name", "")).lstrip("v")
+            latest = str(data.get("tag_name", "")).lstrip("vV")
             return {"latest": latest, "current": __version__,
-                    "update": latest > __version__}
+                    "update": version_key(latest) > version_key(__version__)}
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return {"error": "仓库暂无 Release（或仓库未公开）"}
+            return {"error": f"HTTP {exc.code}"}
         except Exception as exc:  # noqa: BLE001
             return {"error": str(exc)[:120]}
 

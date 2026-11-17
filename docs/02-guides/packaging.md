@@ -253,7 +253,12 @@ set EXE=%LOCALAPPDATA%\Xifeng-build\dist\Xifeng\Xifeng.exe
 `D:\project\workspace\` 下 —— 那里是 Low。
 
 安装目录别和 `%LOCALAPPDATA%\Xifeng` 混用：后者是**用户数据**目录（历史/设置），
-升级时如果整体替换安装目录，数据会跟着没。
+升级时如果整体替换安装目录，数据会跟着没。NSIS 默认 perUser 落点正是
+`$LOCALAPPDATA\${PRODUCTNAME}`，所以 `src-tauri/nsis/hooks.nsh` 在
+`NSIS_HOOK_PREINSTALL` 里把**默认值**改到 `%LOCALAPPDATA%\Programs\Xifeng`
+（用户在目录页手动选了别的路径则尊重其选择）。改完实测：安装目录只有
+`xifeng.exe`/`core/`/`uninstall.exe`，数据目录只有 `xifeng.db`/`models/`/`xifeng.log`。
+**静默安装 MUST 把 setup.exe 先复制出仓库**（Low 标签下直接跑会 `exit=2`，与 G38 同源）。
 
 日常使用：双击 `Xifeng-Tray.cmd`（或 `Xifeng.exe --tray`），再用
 `--autostart on` 让它开机常驻；需要看历史/改术语时从托盘打开窗口。

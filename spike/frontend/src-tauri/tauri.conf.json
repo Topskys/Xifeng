@@ -41,6 +41,11 @@
     ],
     "resources": {
       "resources/core/": "core/"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/hooks.nsh"
+      }
     }
   }
 }

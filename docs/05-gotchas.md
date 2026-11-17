@@ -859,6 +859,12 @@ powershell -c "Unblock-File 'D:\env\Xifeng_0.1.0_x64-setup.exe'"
 :: 3) 查杀软拦截记录（Windows 安全中心 → 保护历史）
 ```
 
+**静默模式的坑（2026-11-17 实测）**：在仓库 Low 目录里跑 `setup.exe /S`，
+不给任何对话框，只返回 `exit=2`；`Start-Process` 甚至会一直挂住。
+别把它当"脚本/钩子写错"——先 `Copy-Item` 到 `D:\env\build\` 再跑，`exit=0`。
+（同一次还新增了 `nsis/hooks.nsh`，把默认安装位置挪到 `Programs\Xifeng`，
+避开展开在用户数据目录里；细节见 packaging.md「交付」。）
+
 **教训**：在这台机器上凡是「往 TEMP 解包/建临时文件」的工具
 （maturin、link.exe、NSIS 安装器）都可能踩同一个 ACL 坑，
 统一解法都是把 `TEMP`/`TMP` 指到 `D:\env\tmp`；

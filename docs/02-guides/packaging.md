@@ -251,16 +251,21 @@ set EXE=%LOCALAPPDATA%\Xifeng-build\dist\Xifeng\Xifeng.exe
 ## 交付
 
 把整个 `Xifeng` 目录复制到未打标的安装位置（例如
-`C:\Users\<你>\AppData\Local\Programs\Xifeng`），建快捷方式即可。**不要**放在
+`D:\Program Files (x86)\xifeng`），建快捷方式即可。**不要**放在
 `D:\project\workspace\` 下 —— 那里是 Low。
 
 安装目录别和 `%LOCALAPPDATA%\Xifeng` 混用：后者是**用户数据**目录（历史/设置），
 升级时如果整体替换安装目录，数据会跟着没。NSIS 默认 perUser 落点正是
 `$LOCALAPPDATA\${PRODUCTNAME}`，所以 `src-tauri/nsis/hooks.nsh` 在
-`NSIS_HOOK_PREINSTALL` 里把**默认值**改到 `%LOCALAPPDATA%\Programs\Xifeng`
-（用户在目录页手动选了别的路径则尊重其选择）。改完实测：安装目录只有
-`xifeng.exe`/`core/`/`uninstall.exe`，数据目录只有 `xifeng.db`/`models/`/`xifeng.log`。
+`NSIS_HOOK_PREINSTALL` 里把**默认值**改成 `D:\Program Files (x86)\xifeng`
+（该目录存在时；否则回退 `%LOCALAPPDATA%\Programs\Xifeng`；用户在目录页手选了
+别的路径则尊重其选择）。改完实测：安装目录只有 `xifeng.exe`/`core/`/`uninstall.exe`，
+数据目录只有 `xifeng.db`/`models/`/`xifeng.log`。
 **静默安装 MUST 把 setup.exe 先复制出仓库**（Low 标签下直接跑会 `exit=2`，与 G38 同源）。
+
+> 重装/覆盖安装会沿用上次安装位置（Tauri 把它记在 `HKCU\Software\xifeng\Xifeng`），
+> 此时钩子不会把路径改到新的默认值。要换位置就先卸载、删掉这个键（或安装时手选目录）
+> 再装。
 
 ### 发版（应用内「检查更新」依赖这一步）
 
@@ -280,8 +285,9 @@ git tag -a v0.1.0 -m "Xifeng 0.1.0" && git push origin v0.1.0
 > `Content-Type: application/json; charset=utf-8`。PowerShell 5.1 直接传
 > `ConvertTo-Json` 的字符串会把中文写成 `?`（页面成问号，API 已落库，只能 PATCH 重写）。
 
-正式形态的日常使用：安装包把壳装到 `%LOCALAPPDATA%\Programs\Xifeng`，托盘两项为
-「显示主界面 / 退出」，开机自启写 `HKCU\...\Run\Xifeng`（指向壳 exe）。
+正式形态的日常使用：安装包把壳装到 `D:\Program Files (x86)\xifeng`（无 D 盘回退
+`%LOCALAPPDATA%\Programs\Xifeng`），托盘两项为「显示主界面 / 退出」，
+开机自启写 `HKCU\...\Run\Xifeng`（指向壳 exe）。
 以下「已知限制」表里带 `--tray` / 控制台隐藏的行属于 PyInstaller 形态。
 
 ## 已知限制

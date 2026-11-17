@@ -9,7 +9,7 @@
 ## A. 用安装包（不需要开发环境）
 
 1. 从 [Releases](https://github.com/Topskys/Xifeng/releases) 下载 `Xifeng_0.1.0_x64-setup.exe`
-2. 安装到 `%LOCALAPPDATA%\Programs\Xifeng`（安装器**默认不带模型**）
+2. 安装到 `D:\Program Files (x86)\xifeng`（没有 D 盘时回退 `%LOCALAPPDATA%\Programs\Xifeng`；安装器**默认不带模型**）
 3. 启动 → 「模型」页下载 ASR / VAD（约 239 MB，落到 `%LOCALAPPDATA%\Xifeng\models`）
 4. 打开记事本，**按住右 Ctrl** 说一句，松开
 

@@ -21,7 +21,7 @@
 ## 安装
 
 1. 从 [Releases](https://github.com/Topskys/Xifeng/releases) 下载 `Xifeng_0.1.0_x64-setup.exe`。
-2. 安装到 `%LOCALAPPDATA%\Programs\Xifeng`（安装器**默认不带模型**，安装包约 35 MB）。
+2. 安装到 `D:\Program Files (x86)\xifeng`（没有 D 盘时回退 `%LOCALAPPDATA%\Programs\Xifeng`；安装器**默认不带模型**，安装包约 35 MB）。
 3. 启动后到「模型」页下载 ASR / VAD / 纠错模型（落到用户数据目录，卸载不会删历史）。
 4. 需要 WebView2 运行时（Windows 10/11 一般已自带）。
 

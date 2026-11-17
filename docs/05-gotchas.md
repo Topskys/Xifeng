@@ -862,6 +862,8 @@ powershell -c "Unblock-File 'D:\env\Xifeng_0.1.0_x64-setup.exe'"
 **静默模式的坑（2026-11-17 实测）**：在仓库 Low 目录里跑 `setup.exe /S`，
 不给任何对话框，只返回 `exit=2`；`Start-Process` 甚至会一直挂住。
 别把它当"脚本/钩子写错"——先 `Copy-Item` 到 `D:\env\build\` 再跑，`exit=0`。
+另外**覆盖安装已存在的版本**时只给 `/S` 也会 `exit=2`（模板把已有安装当"重装"走交互分支），
+必须 `setup.exe /S /UPDATE`；数据目录不受影响。
 （同一次还新增了 `nsis/hooks.nsh`，把默认安装位置挪到 `Programs\Xifeng`，
 避开展开在用户数据目录里；细节见 packaging.md「交付」。）
 

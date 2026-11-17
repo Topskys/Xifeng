@@ -260,6 +260,20 @@ set EXE=%LOCALAPPDATA%\Xifeng-build\dist\Xifeng\Xifeng.exe
 `xifeng.exe`/`core/`/`uninstall.exe`，数据目录只有 `xifeng.db`/`models/`/`xifeng.log`。
 **静默安装 MUST 把 setup.exe 先复制出仓库**（Low 标签下直接跑会 `exit=2`，与 G38 同源）。
 
+### 发版（应用内「检查更新」依赖这一步）
+
+```bash
+git tag -a v0.1.0 -m "Xifeng 0.1.0" && git push origin v0.1.0
+```
+
+然后在 GitHub 建 Release（tag 选 `v0.1.0`），附两个资产：
+`Xifeng_0.1.0_x64-setup.exe` 与 `Xifeng_0.1.0_x64-portable.zip`（`tar -a -c -f` 打便携目录）。
+
+应用内 `check_update` 读 `api.github.com/repos/Topskys/Xifeng/releases/latest`：
+- 仓库 MUST 是 **public**（匿名请求，private 一律 404）
+- 版本按数字段比较（`0.10.0 > 0.9.0`），无 Release 时提示「仓库暂无 Release」而不是裸 404
+- 便携包与安装包的版本号 MUST 与 tag 一致，否则会误报「有新版本」
+
 日常使用：双击 `Xifeng-Tray.cmd`（或 `Xifeng.exe --tray`），再用
 `--autostart on` 让它开机常驻；需要看历史/改术语时从托盘打开窗口。
 

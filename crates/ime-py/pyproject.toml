@@ -3,13 +3,13 @@ requires = ["maturin>=1.7,<2"]
 build-backend = "maturin"
 
 [project]
-name = "voiceime-rs"
+name = "xifeng-rs"
 requires-python = ">=3.11"
-description = "VoiceIME Rust 扩展（PyO3）：文本后处理等核心逻辑"
+description = "Xifeng Rust 扩展（PyO3）：文本后处理等核心逻辑"
 dynamic = ["version"]
 
 [tool.maturin]
-module-name = "voiceime_rs"
+module-name = "xifeng_rs"
 # abi3-py311：一个 .pyd 覆盖 3.11+，PyInstaller 打包时不用跟着 Python 小版本走
 features = ["pyo3/extension-module"]
 strip = true

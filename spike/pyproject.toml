@@ -1,7 +1,7 @@
 [project]
-name = "voiceime-spike"
+name = "xifeng-spike"
 version = "0.1.0"
-description = "VoiceIME M0 spike：验证 ASR 真实耗时、SendInput 成功率、端到端延迟"
+description = "Xifeng M0 spike：验证 ASR 真实耗时、SendInput 成功率、端到端延迟"
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "numpy>=1.26",

@@ -19,7 +19,7 @@
 ```bash
 cd spike
 uv sync                # 首次或依赖变更后
-uv run pytest          # 214 个用例，<10s
+uv run pytest          # 328 个用例，约 25s
 ```
 
 禁止 `pip install` 到系统 Python：曾因直连 pypi 卡死 6 分钟（见 `plan.md` 偏离 D4）。
@@ -42,7 +42,7 @@ uv run python run_spike.py --interactive --no-inject     # 回车开始 / 回车
 uv run python run_spike.py --wav sample.wav --no-inject  # 用现成音频
 ```
 
-PTT 键位：`--key ctrl`（默认，左右均可）/ `rctrl` / `rshift`。
+PTT 键位：`--key rctrl`（默认，右 Ctrl；左右互斥）/ `lctrl` / `lshift` / `rshift`。
 
 麦克风默认**按下才开、松开就关**（不录音时不占用设备）。代价是开流有 100–400ms
 静默期，看到"录音中"再开口；要消掉这段延迟可加 `--resident-mic`（会一直占用麦克风）。
@@ -80,7 +80,7 @@ uv run python fetch_model.py --force    # 强制重下
 
 ## 数据：历史 / 统计 / 术语表（SQLite）
 
-默认开着，库在 `%LOCALAPPDATA%\VoiceIME\voiceime.db`（Low 进程回退 `<spike>/.data`，
+默认开着，库在 `%LOCALAPPDATA%\Xifeng\xifeng.db`（Low 进程回退 `<spike>/.data`，
 冻结 exe 在 `<exe 同级>\data`）。细节见 `docs/03-core-concepts/storage.md`、坑位见 G25。
 
 ```bash
@@ -93,7 +93,7 @@ uv run python run_spike.py --no-db --text "呃 你好"  # 完全不碰数据库
 uv run python run_spike.py --no-store-text          # 只记长度，不落文本
 ```
 
-术语表与复读折叠在注入前自动生效（`glossary.py`）：`voice i e` → `VoiceIME`、
+术语表与复读折叠在注入前自动生效（`glossary.py`）：`voice i e` → `Xifeng`、
 `read me` → `README`、`就交就提交` → `就提交`。
 `--text` 模式也会跑一遍，方便调规则（打印 `[glossary] fixes=... hits=...`）。
 
@@ -116,7 +116,7 @@ set PYTHONPATH=D:\project\workspace\voice-ime\spike;D:\project\workspace\voice-i
 %TEMP%\vi-venv\Scripts\python.exe packaging\build.py
 ```
 
-产物在 `%LOCALAPPDATA%\VoiceIME-build\dist\VoiceIME\`（145.7MB，exe 5.6MB；带模型 374.7MB）。
+产物在 `%LOCALAPPDATA%\Xifeng-build\dist\Xifeng\`（145.7MB，exe 5.6MB；带模型 374.7MB）。
 模型外置：`<exe 同级>\models\asr\sensevoice-small-int8` 或 `IME_MODELS_DIR`。
 同一份 exe 支持 `--tray`（托盘常驻）/ `--web`（Web 五页）/ `--gui`（旧版兜底）/ `--autostart on`。
 `--web` 需要 `<exe 同级>\frontend`，`build.py` 会自动复制。
@@ -151,19 +151,19 @@ Tk 窗口能否收到按键（判据）、以及按住 Ctrl 的真实时长。
 
 | 文件 | 作用 |
 |---|---|
-| `voiceime_spike/trace.py` | Trace 结构、JSONL 落盘、分位数 |
-| `voiceime_spike/postprocess.py` | 幻觉过滤 / 语气词 / 归一化（Rust 侧的行为基准） |
-| `voiceime_spike/vad.py` | 能量 VAD 替身，验证切分/合并/padding（M1 换 Silero） |
-| `voiceime_spike/asr.py` | ASR 适配层：mock / sherpa / auto |
-| `voiceime_spike/hotkey.py` | 全局 PTT：低级键盘钩子（兜底轮询）+ 误触保护 |
+| `xifeng/trace.py` | Trace 结构、JSONL 落盘、分位数 |
+| `xifeng/postprocess.py` | 幻觉过滤 / 语气词 / 归一化（Rust 侧的行为基准） |
+| `xifeng/vad.py` | 能量 VAD 替身，验证切分/合并/padding（M1 换 Silero） |
+| `xifeng/asr.py` | ASR 适配层：mock / sherpa / auto |
+| `xifeng/hotkey.py` | 全局 PTT：低级键盘钩子（兜底轮询）+ 误触保护 |
 | `key_diag.py` | 按键链路诊断：环境/钩子两种线程模型/Tk 判据 |
-| `voiceime_spike/inject.py` | 焦点快照 + SendInput(UNICODE) + 剪贴板兜底（`auto`） |
-| `voiceime_spike/store.py` | SQLite：历史 / 统计 / 术语表 / 设置（G25） |
-| `voiceime_spike/glossary.py` | 术语替换 + 重启复读折叠（纯字符串） |
-| `voiceime_spike/paths.py` | 模型与数据目录解析（源码/冻结两套，G24） |
+| `xifeng/inject.py` | 焦点快照 + SendInput(UNICODE) + 剪贴板兜底（`auto`） |
+| `xifeng/store.py` | SQLite：历史 / 统计 / 术语表 / 设置（G25） |
+| `xifeng/glossary.py` | 术语替换 + 重启复读折叠（纯字符串） |
+| `xifeng/paths.py` | 模型与数据目录解析（源码/冻结两套，G24） |
 | `packaging/build.py` | PyInstaller 打包脚本（onedir，产物落仓库外） |
-| `voiceime_spike/pipeline.py` | 串联 + 打点 |
-| `voiceime_spike/audio.py` | WAV 读写、合成音频 |
+| `xifeng/pipeline.py` | 串联 + 打点 |
+| `xifeng/audio.py` | WAV 读写、合成音频 |
 | `run_spike.py` | 手动跑一次 |
 | `bench.py` | P50/P95/P99 基准 |
 | `inject_smoke.py` | 注入 smoke：开 Tk 窗口 → 注入 → 读回比对（**必须在用户终端里跑**，见下） |

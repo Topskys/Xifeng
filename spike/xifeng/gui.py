@@ -96,7 +96,7 @@ def _open_path(path: Path) -> None:
 
             subprocess.Popen(["xdg-open", str(path)])
     except OSError as exc:
-        messagebox.showerror("VoiceIME", f"打不开目录：{exc}")
+        messagebox.showerror("Xifeng", f"打不开目录：{exc}")
 
 
 def _model_files(model_dir: Path) -> dict[str, bool]:
@@ -710,7 +710,7 @@ class StatsPage(Page):
             title="导出历史记录",
             defaultextension=".csv",
             filetypes=[("CSV", "*.csv")],
-            initialfile="voiceime-history.csv",
+            initialfile="xifeng-history.csv",
         )
         if not path:
             return
@@ -848,7 +848,7 @@ class ModelsPage(Page):
 
     def _use_model(self, path: Path) -> None:
         if not _model_ready(path):
-            messagebox.showwarning("VoiceIME", "该目录缺少 model.onnx（或 int8）与 tokens.txt")
+            messagebox.showwarning("Xifeng", "该目录缺少 model.onnx（或 int8）与 tokens.txt")
             return
         s = user_settings.update(self.app.settings, model_dir=str(path))
         user_settings.save(self.app.store, s)
@@ -863,7 +863,7 @@ class ModelsPage(Page):
         path = Path(chosen)
         if not _model_ready(path):
             messagebox.showwarning(
-                "VoiceIME",
+                "Xifeng",
                 "这个目录里没有可用的模型。\n需要 model.int8.onnx（或 model.onnx）和 tokens.txt。",
             )
             return
@@ -1384,7 +1384,7 @@ def _diff_pieces(before: str, after: str, mode: str) -> list[tuple[str, str]]:
 class App(tk.Tk):
     def __init__(self, db_path: str | None = None, tab: str = "history") -> None:
         super().__init__()
-        self.title("VoiceIME")
+        self.title("Xifeng")
         self.configure(bg=ui.BG)
         self.geometry("1180x760")
         self.minsize(1000, 660)
@@ -1431,7 +1431,7 @@ class App(tk.Tk):
                          highlightthickness=0, bd=0)
         logo.place(x=20, y=20)
         draw_logo(logo, 28)
-        tk.Label(brand, text="VoiceIME", bg=ui.SIDEBAR, fg=ui.PRIMARY,
+        tk.Label(brand, text="Xifeng", bg=ui.SIDEBAR, fg=ui.PRIMARY,
                  font=ui.ui_font(10, "bold"), anchor="w").place(x=58, y=17)
         tk.Label(brand, text=f"v{__version__} · 本地语音输入", bg=ui.SIDEBAR, fg=ui.DIM,
                  font=ui.ui_font(7), anchor="w").place(x=58, y=35)
@@ -1593,7 +1593,7 @@ def run(db_path: str | None = None, tab: str = "history") -> int:
             app = App(db_path, tab)
         except Exception as exc:  # noqa: BLE001
             try:
-                messagebox.showerror("VoiceIME", f"打不开主窗口：{exc}")
+                messagebox.showerror("Xifeng", f"打不开主窗口：{exc}")
             except Exception:  # noqa: BLE001
                 print(f"[gui] 打不开主窗口：{exc}", file=sys.stderr)
             return 1

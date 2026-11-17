@@ -5,11 +5,11 @@ PyInstaller 纯 Python 就能跑。为什么 onedir 而不是 onefile：onefile 
 ~25MB 的 onnxruntime 解压到临时目录，冷启动 +1–2s；onedir 直接就地加载。
 
 为什么模型不进 exe：模型 228MB，onefile 会每次启动解压一遍；外部目录还能单独升级模型。
-模型默认放 `<exe 同级>/models/asr/sensevoice-small-int8`（见 `voiceime_spike/paths.py`）。
+模型默认放 `<exe 同级>/models/asr/sensevoice-small-int8`（见 `xifeng/paths.py`）。
 
-产物默认写到 `%LOCALAPPDATA%\\VoiceIME-build\\dist`，**不要写在本仓库目录**：本工作区带
+产物默认写到 `%LOCALAPPDATA%\\Xifeng-build\\dist`，**不要写在本仓库目录**：本工作区带
 Low 完整性标签，从这里生成的 exe 也是 Low，全局键盘钩子会收不到硬件按键（G21/G24）。
-要交付就把它复制到任何未打标的目录（如 `C:\\Users\\<你>\\AppData\\Local\\Programs\\VoiceIME`）。
+要交付就把它复制到任何未打标的目录（如 `C:\\Users\\<你>\\AppData\\Local\\Programs\\Xifeng`）。
 
 用法：
     uv run python packaging/build.py                    # 只打包程序
@@ -32,28 +32,28 @@ SPIKE_DIR = Path(__file__).resolve().parents[1]
 ENTRY = SPIKE_DIR / "run_spike.py"
 
 sys.path.insert(0, str(SPIKE_DIR))
-from voiceime_spike import paths  # noqa: E402  复用模型路径解析（模型不进包）
+from xifeng import paths  # noqa: E402  复用模型路径解析（模型不进包）
 
 
 def default_out() -> Path:
-    """默认输出目录：`%LOCALAPPDATA%\\VoiceIME-build\\dist`。
+    """默认输出目录：`%LOCALAPPDATA%\\Xifeng-build\\dist`。
 
     不能用 `tempfile.gettempdir()`：本工作区进程是 Low 完整性，`%TEMP%` 是 Medium
     目录，Low 进程写不进去，`tempfile` 会静默退回当前目录（=Low），exe 就打废了。
     """
-    env = os.environ.get("VOICEIME_OUT")
+    env = os.environ.get("XIFENG_OUT") or os.environ.get("VOICEIME_OUT")
     if env:
         return Path(env)
     base = os.environ.get("LOCALAPPDATA") or str(Path.home())
-    return Path(base) / "VoiceIME-build" / "dist"
+    return Path(base) / "Xifeng-build" / "dist"
 
 
 def default_work() -> Path:
-    env = os.environ.get("VOICEIME_WORK")
+    env = os.environ.get("XIFENG_WORK") or os.environ.get("VOICEIME_WORK")
     if env:
         return Path(env)
     base = os.environ.get("LOCALAPPDATA") or str(Path.home())
-    return Path(base) / "VoiceIME-build" / "work"
+    return Path(base) / "Xifeng-build" / "work"
 
 
 def dir_is_low(path: Path) -> bool:
@@ -75,20 +75,20 @@ def check_rust_ext() -> None:
     """确认 Rust 扩展能被导入，否则打出来的包会悄悄回退纯 Python。
 
     为什么必须拦：`postprocess` / `vad` 都是"有扩展用 Rust，没有就静默回退"，
-    打包时若 venv 里没有 `voiceime_rs.pyd`，产物照样能跑，但性能与预期不符，
+    打包时若 venv 里没有 `xifeng_rs.pyd`，产物照样能跑，但性能与预期不符，
     而且不会有任何报错——这类静默降级最难发现。
     """
     try:
-        import voiceime_rs  # noqa: F401
+        import xifeng_rs  # noqa: F401
     except ImportError:
         raise SystemExit(
-            "[build] 缺少 Rust 扩展 voiceime_rs.pyd（产物会静默回退纯 Python）。\n"
+            "[build] 缺少 Rust 扩展 xifeng_rs.pyd（产物会静默回退纯 Python）。\n"
             "[build]   先构建：cd spike && uv run python tools/build_ext.py --release\n"
             "[build]   注意必须用 --release：debug 版比 numpy 还慢（见 latency-budget.md §4.5）"
         ) from None
-    ver = getattr(voiceime_rs, "__version__", "?")
-    funcs = sorted(n for n in dir(voiceime_rs) if not n.startswith("_"))
-    print(f"[build] Rust 扩展 OK：voiceime_rs {ver}（{len(funcs)} 个函数）")
+    ver = getattr(xifeng_rs, "__version__", "?")
+    funcs = sorted(n for n in dir(xifeng_rs) if not n.startswith("_"))
+    print(f"[build] Rust 扩展 OK：xifeng_rs {ver}（{len(funcs)} 个函数）")
 
 
 def build(out: Path, work: Path, with_models: bool, clean: bool) -> Path:
@@ -99,12 +99,12 @@ def build(out: Path, work: Path, with_models: bool, clean: bool) -> Path:
 
     if dir_is_low(out):
         print(f"[build] ⚠ 输出目录 {out} 带 Low 完整性标签 → exe 继承 Low，全局钩子失效（G21/G24）")
-        print("[build]   换一个未打标的目录：--out %LOCALAPPDATA%\\VoiceIME-build\\dist")
+        print("[build]   换一个未打标的目录：--out %LOCALAPPDATA%\\Xifeng-build\\dist")
         print("[build]   并且必须用 Medium 解释器运行本脚本（见 docs/02-guides/packaging.md）")
 
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--name", "VoiceIME",
+        "--name", "Xifeng",
         "--onedir",
         "--console",
         "--noconfirm",
@@ -138,9 +138,9 @@ def build(out: Path, work: Path, with_models: bool, clean: bool) -> Path:
         raise SystemExit(f"PyInstaller 失败，退出码 {rc}")
     print(f"[build] PyInstaller 完成，用时 {time.perf_counter() - t0:.1f}s")
 
-    app_dir = out / "VoiceIME"
+    app_dir = out / "Xifeng"
     if with_models:
-        # 模型统一根（D15）：`%LOCALAPPDATA%\VoiceIME\models`，仓库里不再放模型
+        # 模型统一根（D15）：`%LOCALAPPDATA%\Xifeng\models`，仓库里不再放模型
         src = paths.models_root() / "asr" / "sensevoice-small-int8"
         dst = app_dir / "models" / "asr" / "sensevoice-small-int8"
         if not src.exists():
@@ -162,15 +162,15 @@ def build(out: Path, work: Path, with_models: bool, clean: bool) -> Path:
 
 
 def verify_rust_ext(app_dir: Path) -> None:
-    """产物里必须真有 voiceime_rs.pyd，否则打回。
+    """产物里必须真有 xifeng_rs.pyd，否则打回。
 
     PyInstaller 通常能从 import 自动收集它（实测可行），但这条断言防的是
     "构建机换了、扩展没装"这种环境问题——产物能跑，只是悄悄慢一半。
     """
-    hits = list(app_dir.rglob("voiceime_rs*.pyd")) + list(app_dir.rglob("voiceime_rs*.so"))
+    hits = list(app_dir.rglob("xifeng_rs*.pyd")) + list(app_dir.rglob("xifeng_rs*.so"))
     if not hits:
         raise SystemExit(
-            f"[build] 产物里找不到 voiceime_rs.pyd（{app_dir}）。\n"
+            f"[build] 产物里找不到 xifeng_rs.pyd（{app_dir}）。\n"
             "[build]   检查：venv 里是否装了扩展？PyInstaller 是否被 --exclude-module 挡了？"
         )
     for h in hits:
@@ -248,14 +248,14 @@ def fix_msvc_runtime(app_dir: Path) -> None:
 
 def write_launchers(app_dir: Path) -> None:
     """托盘启动器：省得用户记 `--tray`（双击后控制台会自动隐藏）。"""
-    (app_dir / "VoiceIME-Tray.cmd").write_text(
-        '@echo off\r\nstart "" "%~dp0VoiceIME.exe" --tray\r\n',
+    (app_dir / "Xifeng-Tray.cmd").write_text(
+        '@echo off\r\nstart "" "%~dp0Xifeng.exe" --tray\r\n',
         encoding="ascii",
     )
 
 
 def report(app_dir: Path) -> None:
-    exe = app_dir / "VoiceIME.exe"
+    exe = app_dir / "Xifeng.exe"
     files = [p for p in app_dir.rglob("*") if p.is_file()]
     total = sum(p.stat().st_size for p in files)
     models = [p for p in app_dir.rglob("*") if "models" in p.parts]
@@ -276,7 +276,7 @@ def report(app_dir: Path) -> None:
     for size, p in top:
         print(f"[size]   {p.name:42s} {mb(size)}")
 
-    # PyInstaller --noconfirm 会把 dist/VoiceIME 整个重建，上次放的模型会没
+    # PyInstaller --noconfirm 会把 dist/Xifeng 整个重建，上次放的模型会没
     if not models:
         src = paths.models_root() / "asr" / "sensevoice-small-int8"
         print("[size] 模型缺失 —— 重新构建会清空 dist，需重新复制：")
@@ -291,7 +291,7 @@ def report(app_dir: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="打包 VoiceIME（PyInstaller onedir）")
+    ap = argparse.ArgumentParser(description="打包 Xifeng（PyInstaller onedir）")
     ap.add_argument("--out", type=Path, default=default_out(), help=f"输出目录（默认 {default_out()}）")
     ap.add_argument("--work", type=Path, default=default_work(), help="中间目录")
     ap.add_argument("--with-models", action="store_true", help="把模型复制到 dist（228MB）")
@@ -301,8 +301,8 @@ def main(argv: list[str] | None = None) -> int:
     app_dir = build(args.out, args.work, args.with_models, not args.no_clean)
     report(app_dir)
     print()
-    print(f"[done] {app_dir / 'VoiceIME.exe'}")
-    print("[done] 试跑：VoiceIME.exe --text \"呃 今天 嗯 开会\" --no-inject")
+    print(f"[done] {app_dir / 'Xifeng.exe'}")
+    print("[done] 试跑：Xifeng.exe --text \"呃 今天 嗯 开会\" --no-inject")
     if not args.with_models:
         print("[done] 模型未打包，运行时设置 IME_MODELS_DIR 指向模型目录")
     return 0

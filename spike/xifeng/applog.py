@@ -17,7 +17,7 @@ from pathlib import Path
 
 from . import paths
 
-LOG_NAME = "voiceime.log"
+LOG_NAME = "xifeng.log"
 MAX_BYTES = 2 * 1024 * 1024
 
 

@@ -36,17 +36,17 @@ set PYTHONPATH=D:\project\workspace\voice-ime\spike;D:\project\workspace\voice-i
 产物：
 
 ```
-%LOCALAPPDATA%\VoiceIME-build\dist\VoiceIME\
-├── VoiceIME.exe          5.5 MB
-├── VoiceIME-Tray.cmd     双击启动托盘（等价于 VoiceIME.exe --tray）
+%LOCALAPPDATA%\Xifeng-build\dist\Xifeng\
+├── Xifeng.exe          5.5 MB
+├── Xifeng-Tray.cmd     双击启动托盘（等价于 Xifeng.exe --tray）
 └── _internal\            ~140 MB（python311 / onnxruntime / openblas / portaudio / sqlite3 / tkinter / pystray …）
 ```
 
 模型默认**不打进包**（ASR 228MB + 纠错 491MB，单独升级更快）。
 
-> ⚠ PyInstaller `--noconfirm` 会**重建整个 `dist\VoiceIME` 目录**：上次放进去的
+> ⚠ PyInstaller `--noconfirm` 会**重建整个 `dist\Xifeng` 目录**：上次放进去的
 > `models\` 会被删掉（构建结束会打印提示）。用户数据不在这里 —— 库默认在
-> `%LOCALAPPDATA%\VoiceIME\voiceime.db`，重建不会丢（见 G25）。
+> `%LOCALAPPDATA%\Xifeng\xifeng.db`，重建不会丢（见 G25）。
 
 ## sidecar：Tauri 内嵌核心（build_core.py）
 
@@ -65,11 +65,11 @@ uv run python tools/core_smoke.py              # 独立冒烟：ready→bootstra
 - 产物落在 `spike/frontend/src-tauri/resources/core/`，`tauri.conf.json` 的
   `resources` 把 `resources/core/` 映射到安装目录 `core/`，约 100MB+，
   **已在 `.gitignore`，绝不入库**（G24 同理）。
-- `tauri` 的 `py.rs` 按 `is_sidecar` 判断：进程名是 `VoiceIME-Core.exe` 时直接执行、
+- `tauri` 的 `py.rs` 按 `is_sidecar` 判断：进程名是 `Xifeng-Core.exe` 时直接执行、
   不再传 `run_spike.py`；解释器模式才传脚本名。数据库可用 `--db` 覆盖。
-  sidecar 按以下顺序找：`VOICEIME_PYTHON` 环境变量 →
-  `<exe 同级>\core\VoiceIME-Core\VoiceIME-Core.exe`（onedir）→ 平铺历史候选 → PATH `python`。
-  **布局 MUST 与 py.rs 候选一致**——onedir 是 `core\VoiceIME-Core\` 子目录（带 `_internal`），
+  sidecar 按以下顺序找：`XIFENG_PYTHON` 环境变量 →
+  `<exe 同级>\core\Xifeng-Core\Xifeng-Core.exe`（onedir）→ 平铺历史候选 → PATH `python`。
+  **布局 MUST 与 py.rs 候选一致**——onedir 是 `core\Xifeng-Core\` 子目录（带 `_internal`），
   曾因写成平铺导致壳找不到 sidecar、静默跌到 PATH python。
 - **冒烟 MUST 在 `tauri build` 之前跑**（G36 就是冒烟发现的：3 秒内报
   `ModuleNotFoundError: tkinter`，而打包本身是成功的）。
@@ -87,12 +87,12 @@ uv run python tools/core_smoke.py              # 独立冒烟：ready→bootstra
 
 ## 模型放哪（D15，2026-11-11 统一根）
 
-**模型只有一个存放点**：`%LOCALAPPDATA%\VoiceIME\models\{asr,vad,llm}`
+**模型只有一个存放点**：`%LOCALAPPDATA%\Xifeng\models\{asr,vad,llm}`
 （即 `data_dir()/models`）。开发、调试、打包后的程序都从这一处读；
 仓库里**不再放模型**（原 `models/` 已移除）。`IME_MODELS_ROOT` 可整体换根
 （便携 U 盘 / 自定义盘符）。
 
-各模型路径（`voiceime_spike/paths.py`，解析顺序一致）：
+各模型路径（`xifeng/paths.py`，解析顺序一致）：
 
 | 模型 | 环境变量（整体覆盖） | 统一根位置 |
 |---|---|---|
@@ -107,7 +107,7 @@ uv run python tools/core_smoke.py              # 独立冒烟：ready→bootstra
 `%LOCALAPPDATA%` 但读得到（G25 是写数据的规矩），所以沙箱里也能正常加载模型。
 
 **安装器默认不带模型**（2026-11-11 用户决策）：安装器只含核心（约 34 MiB），
-运行时从统一根 `%LOCALAPPDATA%\VoiceIME\models` 读模型。要出「离线开箱即用」
+运行时从统一根 `%LOCALAPPDATA%\Xifeng\models` 读模型。要出「离线开箱即用」
 包时才 `uv run python packaging/build_core.py --with-models`（统一根 →
 `resources/models/` → 安装目录 `models/` 就地兜底）。LLM 缺失不致命：
 配置页显示"模型缺失"，按原文注入。
@@ -116,10 +116,10 @@ uv run python tools/core_smoke.py              # 独立冒烟：ready→bootstra
 
 | 数据 | 位置 |
 |---|---|
-| 历史 / 统计 / 设置 | `%LOCALAPPDATA%\VoiceIME\voiceime.db`（不可写时回退 `<exe 同级>\data`） |
-| 模型（ASR/VAD/LLM 统一根，D15） | `%LOCALAPPDATA%\VoiceIME\models\{asr,vad,llm}`；离线包自带 `models/` 兜底 |
+| 历史 / 统计 / 设置 | `%LOCALAPPDATA%\Xifeng\xifeng.db`（不可写时回退 `<exe 同级>\data`） |
+| 模型（ASR/VAD/LLM 统一根，D15） | `%LOCALAPPDATA%\Xifeng\models\{asr,vad,llm}`；离线包自带 `models/` 兜底 |
 | 纠错模型（可选） | 统一根 `models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf` 或 `IME_LLM_MODEL` |
-| 托盘日志 | `%LOCALAPPDATA%\VoiceIME\voiceime.log`（只记长度/结果/trace，不记识别全文） |
+| 托盘日志 | `%LOCALAPPDATA%\Xifeng\xifeng.log`（只记长度/结果/trace，不记识别全文） |
 | 音频 | 从不落盘 |
 
 ```bat
@@ -135,7 +135,7 @@ uv run python tools/core_smoke.py              # 独立冒烟：ready→bootstra
 %EXE% --text "呃 帮我把 voice i e 的 read me 提交" --no-inject
 :: → 帮我把 voice i e 的 read me 提交（纠错默认关）
 %EXE% --text "帮我把 voice i e 的 read me 提交" --correct --no-inject
-:: → 帮我把 VoiceIME 的 README 提交（首次冷启动 +4s）
+:: → 帮我把 Xifeng 的 README 提交（首次冷启动 +4s）
 ```
 
 `sherpa_onnx` 的 DLL 由 `--collect-all` 收进 `_internal`；`sqlite3` 随 Python 自带；
@@ -143,7 +143,7 @@ uv run python tools/core_smoke.py              # 独立冒烟：ready→bootstra
 `llama_cpp`（纠错运行时，含 `llama.dll`/`ggml*.dll`）同样用 `--collect-all`。
 `tkinter` 仍随包（`--gui` 是旧版兜底），主界面是 Web：`build.py` 把 `frontend/dist`
 复制成 `<exe 同级>/frontend`，所以交付目录 MUST 连同 `frontend` 一起分发。
-**纠错模型**（D15 统一根）：优先放 `%LOCALAPPDATA%\VoiceIME\models\llm`
+**纠错模型**（D15 统一根）：优先放 `%LOCALAPPDATA%\Xifeng\models\llm`
 （重建 dist 不丢）；打包自带时在安装目录 `models/llm/` 兜底；缺失时配置页显示
 "模型缺失"并给出目录，开关禁用，语音输入照常（只是没有纠错）。
 
@@ -169,9 +169,9 @@ PyInstaller 会从某个依赖里收进旧 `msvcp140.dll`（实测 14.31），�
 | `--ptt --no-inject`（**物理键**，16.6s 音频） | 钩子收到按键，`mode=ptt outcome=Injected`，ASR 1190ms / e2e 1191ms |
 | `--ptt`（**物理键 + 真注入**，7.4s 音频） | `strategy=unicode`，ASR 567ms + 注入 21ms，**e2e 588ms**，文字落在前台窗口 |
 | `--wav`（4.61s + 11s 静音） | 裁掉 12.1s，ASR **283ms**（未裁时 552ms）；5 句带裁剪 CER 仍 **0.0%** |
-| `--tray`（冻结 exe） | 控制台 `hwnd=0`（已隐藏），日志落 `%LOCALAPPDATA%\VoiceIME\voiceime.log`，`完整性=Medium(0x2000)` |
-| `--gui`（冻结 exe，`CREATE_NO_WINDOW` 拉起） | 旧版 tkinter 四页兜底，读真实库 `%LOCALAPPDATA%\VoiceIME\voiceime.db`；日常入口是 `--web` |
-| `--autostart on/off`（冻结 exe） | 写入/删除 `HKCU\...\Run\VoiceIME = "...\VoiceIME.exe" --tray` |
+| `--tray`（冻结 exe） | 控制台 `hwnd=0`（已隐藏），日志落 `%LOCALAPPDATA%\Xifeng\xifeng.log`，`完整性=Medium(0x2000)` |
+| `--gui`（冻结 exe，`CREATE_NO_WINDOW` 拉起） | 旧版 tkinter 四页兜底，读真实库 `%LOCALAPPDATA%\Xifeng\xifeng.db`；日常入口是 `--web` |
+| `--autostart on/off`（冻结 exe） | 写入/删除 `HKCU\...\Run\Xifeng = "...\Xifeng.exe" --tray` |
 | `--tray --inject clipboard`（跨进程 WinForms `Edit`） | 注入 **507ms**（含 500ms 恢复等待），文本落地，剪贴板还原为注入前哨兵 |
 | `--inject auto`（同一目标） | **28–39ms**；Unicode 成功即返回，不碰剪贴板；探测到没打进去才降级 |
 
@@ -182,7 +182,7 @@ PyInstaller 会从某个依赖里收进旧 `msvcp140.dll`（实测 14.31），�
 | 项 | 数字 |
 |---|---|
 | 交付体积（ASR 模型随包，纠错模型不进包） | 392.2 MB / 1294 个文件；exe 6.3 MB |
-| 纠错模型（单独放数据目录） | 469 MB → `%LOCALAPPDATA%\VoiceIME\models\llm` |
+| 纠错模型（单独放数据目录） | 469 MB → `%LOCALAPPDATA%\Xifeng\models\llm` |
 | `--wav fixtures/quality/01.wav`（纠错关，`sherpa`） | ASR 331ms，e2e **353ms** |
 | 同上 + `--correct` | 模型加载 + warmup 1855ms（一次性），纠错 693ms，e2e **1047ms** |
 | `--text "…read me…" --correct`（G33 修好后） | `[correct] applied fixes=1 519ms` |
@@ -192,7 +192,7 @@ PyInstaller 会从某个依赖里收进旧 `msvcp140.dll`（实测 14.31），�
 ## 验收清单
 
 ```bat
-set EXE=%LOCALAPPDATA%\VoiceIME-build\dist\VoiceIME\VoiceIME.exe
+set EXE=%LOCALAPPDATA%\Xifeng-build\dist\Xifeng\Xifeng.exe
 
 :: 1. 不加载模型，验证 boot + 文本规则
 %EXE% --text "呃 今天 嗯 开会" --no-inject
@@ -214,13 +214,13 @@ set EXE=%LOCALAPPDATA%\VoiceIME-build\dist\VoiceIME\VoiceIME.exe
 换 Medium 解释器与 `%LOCALAPPDATA%` 输出重新打包，别在仓库里改代码。
 
 第 4 步的 `--text` 应打印 `[post] cleaned='今天 开会'`；`--stats` 的 `[db]` 行应是
-`%LOCALAPPDATA%\VoiceIME\voiceime.db`。
+`%LOCALAPPDATA%\Xifeng\xifeng.db`。
 
-第 4.5 步验证模型纠错（可选；模型放 `%LOCALAPPDATA%\VoiceIME\models\llm`，不在包里）：
+第 4.5 步验证模型纠错（可选；模型放 `%LOCALAPPDATA%\Xifeng\models\llm`，不在包里）：
 
 ```bat
 %EXE% --text "帮我把 voice i e 的 read me 提交" --correct --no-inject
-:: → [correct] applied … [post] cleaned='帮我把 VoiceIME 的 README 提交'
+:: → [correct] applied … [post] cleaned='帮我把 Xifeng 的 README 提交'
 %EXE% --text "这个会议机要发给我" --correct --no-inject
 :: 守卫拒绝时打印 [correct] 保留原文（…），cleaned 保持原句
 ```
@@ -242,20 +242,20 @@ set EXE=%LOCALAPPDATA%\VoiceIME-build\dist\VoiceIME\VoiceIME.exe
 ```
 
 `--tray` 会先隐藏控制台再加载模型（开机自启不会闪黑窗）；日志在
-`%LOCALAPPDATA%\VoiceIME\voiceime.log`。重复启动第二个托盘会被命名 Mutex 挡掉。
+`%LOCALAPPDATA%\Xifeng\xifeng.log`。重复启动第二个托盘会被命名 Mutex 挡掉。
 `--web` 需要 exe 同级的 `frontend/` 目录；关窗 30s 后服务自动退出，
 再次点托盘菜单会重新起服务（已有服务时只开窗口）。
 
 ## 交付
 
-把整个 `VoiceIME` 目录复制到未打标的安装位置（例如
-`C:\Users\<你>\AppData\Local\Programs\VoiceIME`），建快捷方式即可。**不要**放在
+把整个 `Xifeng` 目录复制到未打标的安装位置（例如
+`C:\Users\<你>\AppData\Local\Programs\Xifeng`），建快捷方式即可。**不要**放在
 `D:\project\workspace\` 下 —— 那里是 Low。
 
-安装目录别和 `%LOCALAPPDATA%\VoiceIME` 混用：后者是**用户数据**目录（历史/设置），
+安装目录别和 `%LOCALAPPDATA%\Xifeng` 混用：后者是**用户数据**目录（历史/设置），
 升级时如果整体替换安装目录，数据会跟着没。
 
-日常使用：双击 `VoiceIME-Tray.cmd`（或 `VoiceIME.exe --tray`），再用
+日常使用：双击 `Xifeng-Tray.cmd`（或 `Xifeng.exe --tray`），再用
 `--autostart on` 让它开机常驻；需要看历史/改术语时从托盘打开窗口。
 
 ## 已知限制

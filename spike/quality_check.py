@@ -25,13 +25,13 @@ from pathlib import Path
 
 import numpy as np
 
-from voiceime_spike import asr, audio
-from voiceime_spike.pipeline import record_interactive
+from xifeng import asr, audio
+from xifeng.pipeline import record_interactive
 
 SENTENCES = [
     "今天下午三点开会，把方案发给我。",
     "这个接口的延迟必须控制在一百五十毫秒以内。",
-    "帮我把 VoiceIME 的 README 更新一下。",
+    "帮我把 Xifeng 的 README 更新一下。",
     "会议改到明天上午十点，地点在三楼会议室。",
     "先跑一遍测试，如果全部通过就提交代码。",
 ]
@@ -103,7 +103,7 @@ def refine(text: str, correct: bool = False) -> str:
 
     CER 应该量"用户最终看到的字"，不是模型原始输出。`--no-refine` 可关掉。
     """
-    from voiceime_spike import correction, postprocess
+    from xifeng import correction, postprocess
 
     cfg = postprocess.PostConfig()
     cleaned = postprocess.process(text, cfg)
@@ -214,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
     asr.warmup()
     print(f"[asr] 实际后端={asr.backend()} language={args.language} itn={args.itn}")
     if args.correct:
-        from voiceime_spike import correction
+        from xifeng import correction
 
         if correction.load(threads=args.threads):
             print(f"[correct] {correction.describe()} 热身 {correction.warmup()}ms")

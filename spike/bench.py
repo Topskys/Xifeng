@@ -19,15 +19,15 @@ from pathlib import Path
 
 import numpy as np
 
-from voiceime_spike import asr, audio, benv
-from voiceime_spike.pipeline import Pipeline, PipelineConfig, record_seconds
-from voiceime_spike.trace import percentiles
+from xifeng import asr, audio, benv
+from xifeng.pipeline import Pipeline, PipelineConfig, record_seconds
+from xifeng.trace import percentiles
 
 BUDGET = {"ms_asr": 350, "ms_post": 1, "ms_inject": 10, "e2e_ms": 1500, "e2e_ptt": 800}
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="VoiceIME 延迟基准")
+    p = argparse.ArgumentParser(description="Xifeng 延迟基准")
     p.add_argument("--n", type=int, default=20, help="重复次数（默认 20）")
     p.add_argument("--wav", default=None, help="输入 wav（不填则合成 3s 音频）")
     p.add_argument("--seconds", type=float, default=3.0, help="合成音频时长（无 --wav 时）")

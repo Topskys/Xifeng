@@ -38,7 +38,7 @@ def curl(url: str, dest: Path, flags: list[str] | None = None) -> None:
 def latest_llamacpp_asset() -> str:
     """从 GitHub latest release 找 llama-server 的 CPU (avx2) Windows 包。"""
     url = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
-    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "voiceime"}), timeout=30) as r:
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "xifeng"}), timeout=30) as r:
         data = json.loads(r.read().decode("utf-8"))
     tag = data["tag"]
     pat = re.compile(r"llama-.*-bin-win-cpu-x64\.zip$", re.I)

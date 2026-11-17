@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from voiceime_spike import ipc, webgui
-from voiceime_spike.store import Store
+from xifeng import ipc, webgui
+from xifeng.store import Store
 
 SPIKE_DIR = Path(__file__).resolve().parents[1]
 
@@ -117,7 +117,7 @@ def test_settings_save_persists_and_returns_full_settings(store: Store) -> None:
 
 
 def test_history_and_delete(store: Store) -> None:
-    from voiceime_spike.trace import Outcome, Trace
+    from xifeng.trace import Outcome, Trace
 
     store.add_history(Trace(outcome=Outcome.INJECTED, e2e_ms=300, ms_asr=250), "你好")
     _ready, page, deleted, after = _run(
@@ -328,7 +328,7 @@ def test_method_table_matches_contract_and_api() -> None:
 
 def test_runtime_method_table_matches_contract() -> None:
     """D16 运行时方法与契约一致，且不与 HTTP 对应方法重叠。"""
-    from voiceime_spike.asr_runtime import AsrRuntime
+    from xifeng.asr_runtime import AsrRuntime
 
     assert set(ipc.RUNTIME_METHODS) == RUNTIME_METHODS
     assert len(ipc.RUNTIME_METHODS) == 6

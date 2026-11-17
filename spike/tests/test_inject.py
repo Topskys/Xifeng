@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from voiceime_spike import inject as inj
+from xifeng import inject as inj
 
 
 def test_chinese_characters_one_unit_each() -> None:

@@ -1,4 +1,4 @@
-# AGENTS.md — VoiceIME
+# AGENTS.md — Xifeng
 
 本地语音输入法。**Python 主流程**（sounddevice + ctypes Win32）+ SenseVoice ASR，
 PyInstaller 打包交付。Rust 版推迟（决策见 `docs/00-process/plan.md` 偏离 D6）。
@@ -49,8 +49,12 @@ cargo build -p ime-py --release          # 只编译扩展，不装进 venv
 - 日志禁止记录识别文本全文，只记长度与 outcome
 - 推理 MUST 在独立线程，**禁止** 在音频回调里调用 ASR
 - 不录音时 **禁止** 占用麦克风：默认按下热键才 `LiveMic.start()`，松开后关闭
-- 后处理（`postprocess`）规则 **禁止** 只改一边：`voiceime_spike/postprocess.py` 是基准，
+- 后处理（`postprocess`）规则 **禁止** 只改一边：`xifeng/postprocess.py` 是基准，
   `crates/ime-post` 是等价实现，`tests/test_postprocess_parity.py` 必须绿
+- 用户数据 MUST 落 `%LOCALAPPDATA%\Xifeng`（库 `xifeng.db`、日志 `xifeng.log`）；
+  旧 `VoiceIME` 目录只允许**一次性迁移 + 只读兜底**，禁止把新数据写回去（D21/G43）
+- 自启 MUST 只写 `HKCU\...\Run\Xifeng`，旧值 `VoiceIME` 迁移后 MUST 删除
+  （否则开机跑两个实例）；环境变量用 `XIFENG_*`，旧名只读兼容
 
 ## 架构
 
@@ -62,13 +66,13 @@ Python: 仅 ASR/纠错推理运行时（--ipc stdio NDJSON，asr_begin/feed/end/
 ```
 
 D16 后：触发链在壳里，**Python --ptt --tray 语音服务已退役**（spawn_voice_service 已删）；
-托盘两项（显示主界面/退出）、开机自启写注册表值 `VoiceIME`（HKCU\...\Run，指向壳 exe）、
+托盘两项（显示主界面/退出）、开机自启写注册表值 `Xifeng`（HKCU\...\Run，指向壳 exe）、
 录音浮窗是 `?window=overlay` webview 页（`voice://level` 音量事件）。
 已知限制：设置热更在**下一次语音会话**生效（会话中段不变）；纠错（LLM）与
 统计/历史已走 IPC（correct/session_record）；G7 提权目标已接反馈链
 （voice://elevated → 主窗口 toast）；voice_test 仅 debug/e2e 构建可用。
 
-Rust 以 PyO3 扩展（`voiceime_rs.pyd`）参与：`crates/ime-post` 放文本规则，`crates/ime-vad` 放 VAD 算法，`crates/ime-py` 只做
+Rust 以 PyO3 扩展（`xifeng_rs.pyd`）参与：`crates/ime-post` 放文本规则，`crates/ime-vad` 放 VAD 算法，`crates/ime-py` 只做
 Python 签名 ↔ Rust 的转接。Python 侧保留纯 Python 基准实现，两边必须逐字节等价。
 
 ## 提交
@@ -97,17 +101,17 @@ Python 签名 ↔ Rust 的转接。Python 侧保留纯 Python 基准实现，两
 - 不要松手立刻关流 —— 会丢最后 150–300ms，必须 `drain_ms`（G23）
 - 不要在托盘菜单里起 tkinter —— 主界面是 Web（`--web --tab`），`--gui` 只是旧版兜底
 - 不要按次加载模型 —— 模型常驻，启动 warmup 一次
-- 不要把模型放进仓库 —— 统一根是 `%LOCALAPPDATA%\VoiceIME\models\{asr,vad,llm}`
+- 不要把模型放进仓库 —— 统一根是 `%LOCALAPPDATA%\Xifeng\models\{asr,vad,llm}`
   （D15），仓库 `models/` 已移除；**安装器默认不带模型**，离线开箱包用
   `build_core.py --with-models`（统一根 → `resources/models/` → 安装目录）
 - 不要在仓库目录构建 exe —— 产物继承 Low 标签，钩子失效（G24）
-- 不要带着旧进程跑构建 —— `tauri build` 前先杀 `voiceime-tauri.exe`（它锁自己的产物，
+- 不要带着旧进程跑构建 —— `tauri build` 前先杀 `xifeng.exe`（它锁自己的产物，
   os error 5，G37）；NSIS 安装包装不上先复制出仓库剥 Low 标签（G38 真根因）
 - 改 VAD 阈值 / 分词规则必须跑 golden 用例，否则会静默误伤
 - 不要为了"便携"把 SQLite 放 exe 同级 —— 重建 dist 会清空（G25）
 - 不要让小模型"自由改写" —— 守卫必须拒绝删词/大改/解释性输出，宁可漏改（G32）
 - 不要在 Rust 正则里写 lookahead —— `regex` crate 不支持 lookaround，用"吞边界再吐回"
-- 不要把 `voiceime_rs.pyd` 拷进仓库 —— 它属于 venv/site-packages，构建走 `tools/build_ext.py`
+- 不要把 `xifeng_rs.pyd` 拷进仓库 —— 它属于 venv/site-packages，构建走 `tools/build_ext.py`
 - 不要删产物里的 `msvcp140.dll` 修崩溃 —— 用 `build.py` 按版本号覆盖成系统的新版（G33）
 - 不要指望 DWM 亚克力能给 Tk 做毛玻璃 —— 浮窗是"截图 + 高斯模糊"（BitBlt 抓 300×32，G34）
 - 不要全局杀 `msedge` 或复用用户的浏览器窗口 —— 验证 MUST 用独立 `--user-data-dir` + 独立调试端口 + `--new-window`，收尾只关自己启动的 PID/profile

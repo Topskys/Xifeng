@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from voiceime_spike import vad
-from voiceime_spike.audio import synth_speech_like
+from xifeng import vad
+from xifeng.audio import synth_speech_like
 
 SR = 16000
 
@@ -158,7 +158,7 @@ def test_rebuild_without_segments_is_empty() -> None:
 
 # ---------------------------------------------------------------- Silero 概率切分（M1）
 
-from voiceime_spike.vad import VadConfig, probs_to_segments  # noqa: E402
+from xifeng.vad import VadConfig, probs_to_segments  # noqa: E402
 
 WINDOW = 512
 

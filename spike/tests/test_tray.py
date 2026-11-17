@@ -10,7 +10,7 @@ import io
 import sys
 
 import run_spike
-from voiceime_spike import applog, autostart, hotkey
+from xifeng import applog, autostart, hotkey
 
 
 class _Key:
@@ -117,7 +117,7 @@ def test_wait_for_press_honors_stop() -> None:
 
 
 def test_tray_quit_stops_icon_and_signals() -> None:
-    from voiceime_spike import tray as tray_mod
+    from xifeng import tray as tray_mod
 
     quit_called: list[bool] = []
     stopped: list[bool] = []
@@ -137,7 +137,7 @@ def test_tray_quit_stops_icon_and_signals() -> None:
 
 def test_tray_icon_image_is_self_contained() -> None:
     """图标必须由代码画出来 —— 打包时就不用带图片资源，也不会找不到文件。"""
-    from voiceime_spike.tray import _image
+    from xifeng.tray import _image
 
     img = _image()
     assert img.size == (64, 64)
@@ -149,16 +149,16 @@ def test_tray_single_instance_mutex() -> None:
     import os
     import time
 
-    from voiceime_spike import tray as tray_mod
+    from xifeng import tray as tray_mod
 
-    name = f"Local\\VoiceIME-test-{os.getpid()}-{time.time_ns()}"
+    name = f"Local\\Xifeng-test-{os.getpid()}-{time.time_ns()}"
     assert tray_mod.acquire_single_instance(name) is True
     assert tray_mod.acquire_single_instance(name) is False
 
 
 def test_web_dispatch_passes_tab(monkeypatch) -> None:  # noqa: ANN001
     """托盘/命令行打开主窗口走 Web GUI，必须把页签透传过去。"""
-    from voiceime_spike import webgui
+    from xifeng import webgui
 
     seen: dict[str, object] = {}
     monkeypatch.setattr(
@@ -170,7 +170,7 @@ def test_web_dispatch_passes_tab(monkeypatch) -> None:  # noqa: ANN001
 
 def test_tray_gui_command(monkeypatch, tmp_path) -> None:
     """托盘「显示主界面」优先开 Tauri 壳；找不到壳才退回 `--web --tab` 兜底。"""
-    from voiceime_spike import tray as tray_mod
+    from xifeng import tray as tray_mod
 
     # 源码形态：没有壳 exe → Web GUI 兜底
     cmd = tray_mod.gui_command("about")
@@ -178,10 +178,10 @@ def test_tray_gui_command(monkeypatch, tmp_path) -> None:
     assert "--gui" not in cmd
 
     # 冻结 + 壳存在 → 开壳（sidecar 上两级是安装根）
-    fake_core = tmp_path / "core" / "VoiceIME-Core" / "VoiceIME-Core.exe"
+    fake_core = tmp_path / "core" / "Xifeng-Core" / "Xifeng-Core.exe"
     fake_core.parent.mkdir(parents=True)
     fake_core.write_bytes(b"")
-    shell = tmp_path / "voiceime-tauri.exe"
+    shell = tmp_path / "xifeng.exe"
     shell.write_bytes(b"")
     monkeypatch.setattr(tray_mod.sys, "frozen", True, raising=False)
     monkeypatch.setattr(tray_mod.sys, "executable", str(fake_core))

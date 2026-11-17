@@ -32,7 +32,7 @@ export function AboutPage({ boot }: { boot: Bootstrap }) {
 
   return (
     <div className="p-6 mx-auto w-full max-w-4xl">
-      <PageHeader title="关于" desc="溪风（VoiceIME）· 语音输入法" />
+      <PageHeader title="关于" desc="溪风（Xifeng）· 语音输入法" />
 
       <Card className="flex flex-row items-center gap-5 rounded-xl border-border p-6">
         <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-primary">
@@ -41,7 +41,7 @@ export function AboutPage({ boot }: { boot: Bootstrap }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="text-lg font-bold">溪风</span>
-            <Badge variant="muted">VoiceIME v{boot.version}</Badge>
+            <Badge variant="muted">Xifeng v{boot.version}</Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             按住热键说话，松开出字，落在光标处。识别、纠错与注入全程在本机完成。
@@ -54,7 +54,7 @@ export function AboutPage({ boot }: { boot: Bootstrap }) {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => api.open("https://github.com/qxsvsq81/VoiceIME")}
+            onClick={() => api.open("https://github.com/qxsvsq81/Xifeng")}
           >
             <ExternalLink /> GitHub
           </Button>
@@ -70,7 +70,7 @@ export function AboutPage({ boot }: { boot: Bootstrap }) {
       <Card className="mt-3 rounded-xl border-border p-5">
         <div className="text-sm font-semibold">简介</div>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          VoiceIME（溪风）是一款 Windows 语音输入法：SenseVoice 识别、
+          Xifeng（溪风）是一款 Windows 语音输入法：SenseVoice 识别、
           可选本地小模型润色整句、支持自定义术语表。音频与文本不出本机，
           唯一的网络请求是模型下载与更新检查。
         </p>

@@ -7,7 +7,7 @@
 
 命令形态（`--tray` 会自己隐藏控制台窗口）：
 
-- 冻结 exe：`"C:\\...\\VoiceIME.exe" --tray`
+- 冻结 exe：`"C:\\...\\Xifeng.exe" --tray`
 - 源码运行：`"C:\\...\\python.exe" "C:\\...\\run_spike.py" --tray`
 """
 
@@ -24,7 +24,9 @@ else:  # pragma: no cover - 本项目只交付 Windows
     winreg = None  # type: ignore[assignment]
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-APP_NAME = "VoiceIME"
+APP_NAME = "Xifeng"
+# 改名（D21）：旧版写的是 VoiceIME；迁移后只留新值，避免开机跑两次。
+LEGACY_APP_NAME = "VoiceIME"
 
 
 def app_command(exe: str | None = None) -> str:
@@ -56,19 +58,55 @@ def enable(command: str | None = None) -> str:
     cmd = command or app_command()
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
         winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, cmd)
+        # 旧值名清掉：不然下次开机旧版（VoiceIME-Core --tray）还会被拉起
+        try:
+            winreg.DeleteValue(key, LEGACY_APP_NAME)
+        except FileNotFoundError:
+            pass
     return cmd
 
 
 def disable() -> bool:
-    """删除自启项；不存在返回 False。"""
+    """删除自启项；不存在返回 False。新旧两个值都清，避免残留开机项。"""
     if not IS_WINDOWS:
         return False
+    removed = False
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
-            winreg.DeleteValue(key, APP_NAME)
-        return True
+            for name in (APP_NAME, LEGACY_APP_NAME):
+                try:
+                    winreg.DeleteValue(key, name)
+                    removed = True
+                except FileNotFoundError:
+                    pass
+        return removed
     except FileNotFoundError:
         return False
+
+
+def migrate_legacy() -> str | None:
+    """把旧版 `VoiceIME` 自启值迁成本程序的 `Xifeng` 值（D21）。
+
+    返回被替换的旧命令（给日志）；`None` = 没开自启或已经迁过。
+    """
+    if not IS_WINDOWS:
+        return None
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_QUERY_VALUE | winreg.KEY_SET_VALUE
+        ) as key:
+            try:
+                old, _ = winreg.QueryValueEx(key, LEGACY_APP_NAME)
+            except FileNotFoundError:
+                return None
+            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, app_command())
+            try:
+                winreg.DeleteValue(key, LEGACY_APP_NAME)
+            except FileNotFoundError:
+                pass
+            return str(old)
+    except OSError:
+        return None
 
 
 def toggle() -> bool:

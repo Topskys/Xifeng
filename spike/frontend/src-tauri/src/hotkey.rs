@@ -1,6 +1,6 @@
 //! 按住说话（PTT）的全局按键采集：`WH_KEYBOARD_LL` 低级键盘钩子。
 //!
-//! 这是 `voiceime_spike/hotkey.py` 里 `LowLevelHook` 的等价实现（D16：
+//! 这是 `xifeng/hotkey.py` 里 `LowLevelHook` 的等价实现（D16：
 //! 壳接管按键采集）。为什么不用 `RegisterHotKey`：它只报"按下"，拿不到
 //! "松开"，而 PTT 必须要 KeyUp。为什么必须低级钩子：本机实测
 //! `GetAsyncKeyState` 读不到按键（G18/G19）。

@@ -11,7 +11,7 @@ from pathlib import Path
 
 CORE = (
     Path(__file__).resolve().parents[1]
-    / "frontend" / "src-tauri" / "resources" / "core" / "VoiceIME-Core" / "VoiceIME-Core.exe"
+    / "frontend" / "src-tauri" / "resources" / "core" / "Xifeng-Core" / "Xifeng-Core.exe"
 )
 
 

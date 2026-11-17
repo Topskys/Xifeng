@@ -3,7 +3,7 @@
 把识别文本放进**当前光标位置**，不抢焦点。默认策略（`auto`）先走键盘，
 确认目标没吃下按键时才动剪贴板。
 
-实现基准：`spike/voiceime_spike/inject.py`；Rust 侧 `ime-inject` 必须等价。
+实现基准：`spike/xifeng/inject.py`；Rust 侧 `ime-inject` 必须等价。
 
 ## 三种策略
 
@@ -68,7 +68,7 @@ ALT 技巧：先模拟 `ALT` 按下/抬起再 `SetForegroundWindow`。直接调�
 1. 注入前 MUST 检测目标是否提权
 2. 目标提权（`elevated=True`）+ 本进程非提权 → 返回 `ElevatedTarget`，**禁止静默失败**
 3. 令牌读不到（`elevated=None`，受保护进程）→ 按普通窗口尝试注入，不武断拒绝（G13）
-4. 提示语必须能指导用户（"以管理员身份运行 VoiceIME"）
+4. 提示语必须能指导用户（"以管理员身份运行 Xifeng"）
 
 ## 码元切分（必须）
 

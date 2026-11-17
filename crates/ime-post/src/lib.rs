@@ -1,6 +1,6 @@
-//! VoiceIME 文本后处理。
+//! Xifeng 文本后处理。
 //!
-//! 这是 `spike/voiceime_spike/postprocess.py` 的等价实现，**行为基准是那个 Python 文件**
+//! 这是 `spike/xifeng/postprocess.py` 的等价实现，**行为基准是那个 Python 文件**
 //! 和 `spike/tests/test_postprocess.py` 里的黄金用例（`docs/00-process/plan.md` Step 2）。
 //! 任何规则变更 MUST 两边同时改，并由 `spike/tests/test_postprocess_parity.py` 证明等价。
 //!

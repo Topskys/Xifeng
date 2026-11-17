@@ -1,6 +1,6 @@
 # 存储（SQLite）
 
-VoiceIME 只有两类**有结构的数据**：输入历史、设置。它们都进一个 SQLite 文件，
+Xifeng 只有两类**有结构的数据**：输入历史、设置。它们都进一个 SQLite 文件，
 用 Python 标准库 `sqlite3`（零依赖、单文件、GUI 直接读同一个库）。
 
 **音频从不落库**；文本默认进历史表，可关闭（见「隐私边界」）。
@@ -56,15 +56,15 @@ CREATE TABLE settings (         -- 键值对，CLI 与 GUI 共用
 
 ## 文件位置
 
-按优先级（`voiceime_spike/paths.py`）：
+按优先级（`xifeng/paths.py`）：
 
 | 顺序 | 条件 | 路径 |
 |---|---|---|
 | 1 | 环境变量 `IME_DB` | 指定整个文件路径 |
-| 2 | 环境变量 `IME_DATA_DIR` | `<该目录>/voiceime.db` |
-| 3 | `%LOCALAPPDATA%` 可写（源码与冻结形态都走这条） | `%LOCALAPPDATA%\VoiceIME\voiceime.db` |
-| 4 | 冻结形态且 `%LOCALAPPDATA%` 不可写 | `<exe 同级>/data/voiceime.db` |
-| 5 | 源码形态且 `%LOCALAPPDATA%` 不可写（Low 进程） | `<spike>/.data/voiceime.db` |
+| 2 | 环境变量 `IME_DATA_DIR` | `<该目录>/xifeng.db` |
+| 3 | `%LOCALAPPDATA%` 可写（源码与冻结形态都走这条） | `%LOCALAPPDATA%\Xifeng\xifeng.db` |
+| 4 | 冻结形态且 `%LOCALAPPDATA%` 不可写 | `<exe 同级>/data/xifeng.db` |
+| 5 | 源码形态且 `%LOCALAPPDATA%` 不可写（Low 进程） | `<spike>/.data/xifeng.db` |
 
 为什么优先 `%LOCALAPPDATA%` 而不是 exe 同级：装到 `Program Files` 时 exe 目录不可写；
 而且**升级会整目录替换**，历史会跟着丢。第 4/5 条只是保底（便携版、Low 进程），
@@ -82,7 +82,7 @@ no-write-up 拒绝（G25），因此先探测可写性再决定。
 
 关掉文本后统计功能不受影响（`stats()` 只用 `outcome/chars/耗时`）。
 
-删除全部历史：`sqlite3 voiceime.db "DELETE FROM history"` 或删库文件（下次启动自动重建）。
+删除全部历史：`sqlite3 xifeng.db "DELETE FROM history"` 或删库文件（下次启动自动重建）。
 GUI 的「统计」页用 `Store.prune(keep_days)` 做「保留 N 天」。
 
 ## 与纠错层的协作
@@ -107,7 +107,7 @@ uv run python run_spike.py --web --tab config          # Web 界面：五页，�
 uv run python run_spike.py --no-db --text "呃 你好"    # 完全不碰数据库
 ```
 
-冻结形态（`VoiceIME.exe`）参数完全一致，库同样落 `%LOCALAPPDATA%\VoiceIME\voiceime.db`
+冻结形态（`Xifeng.exe`）参数完全一致，库同样落 `%LOCALAPPDATA%\Xifeng\xifeng.db`
 （该目录不可写时才回退 `<exe 同级>\data`）。
 
 ## 并发

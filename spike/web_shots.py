@@ -45,7 +45,7 @@ def main() -> int:
     deadline = time.time() + args.wait
     hwnd = None
     while time.time() < deadline:
-        hwnd = user32.FindWindowW(None, "VoiceIME")
+        hwnd = user32.FindWindowW(None, "Xifeng")
         if hwnd and user32.IsWindowVisible(hwnd):
             break
         time.sleep(1)

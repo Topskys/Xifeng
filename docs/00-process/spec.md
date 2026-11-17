@@ -1,4 +1,4 @@
-# Spec: VoiceIME M0（走通一次语音输入）
+# Spec: Xifeng M0（走通一次语音输入）
 
 Status: draft → 待 G1 批准  
 Source: `intent.md`（2026-10-28）  
@@ -154,10 +154,10 @@ pub fn inject(text: &str, snap: &FocusSnapshot, cfg: &InjectConfig) -> Result<In
 ## 5. 数据与存储
 
 > 2026-10-29 更新（撤销偏离 D3）：用户要求"有数据的地方用 SQLite"，已落地
-> `spike/voiceime_spike/store.py`，详见 `03-core-concepts/storage.md`。
+> `spike/xifeng/store.py`，详见 `03-core-concepts/storage.md`。
 
 - 配置：M1 落在 SQLite `settings` 表（`key/value`），不再引入 `config.toml`
-- 历史/统计/设置：`%LOCALAPPDATA%/VoiceIME/voiceime.db`（WAL；
+- 历史/统计/设置：`%LOCALAPPDATA%/Xifeng/xifeng.db`（WAL；
   Low 进程回退 `<spike>/.data`；冻结形态不可写时回退 `<exe 同级>/data`）
 - Trace：仍可写 `trace.jsonl`（`--trace`），但 SQLite `history` 是主存储；
   **两者都不含音频**，文本受 `--no-store-text` 控制

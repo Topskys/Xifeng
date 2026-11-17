@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "VoiceIME 主窗口（IPC 桥 + 无边框窗口控制）与录音浮窗（voice://level / voice://theme 事件监听）",
+  "description": "Xifeng 主窗口（IPC 桥 + 无边框窗口控制）与录音浮窗（voice://level / voice://theme 事件监听）",
   "windows": ["main", "overlay"],
   "permissions": [
     "core:default",

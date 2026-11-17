@@ -2,7 +2,7 @@
 
 一次输入的起点。默认 **按住 Ctrl 说话，松开结束**。
 
-实现基准：`spike/voiceime_spike/hotkey.py`；Rust 侧 `ime-hotkey`（rdev）必须等价。
+实现基准：`spike/xifeng/hotkey.py`；Rust 侧 `ime-hotkey`（rdev）必须等价。
 
 ## 为什么是"按住"而不是"点一下"
 

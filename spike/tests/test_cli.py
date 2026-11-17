@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 import run_spike
-from voiceime_spike.store import Store
+from xifeng.store import Store
 
 
 @pytest.fixture()
@@ -72,6 +72,6 @@ def test_readonly_subcommands_need_db(db: str) -> None:  # noqa: ANN001
 
 
 def _trace():  # noqa: ANN202
-    from voiceime_spike.trace import Outcome, Trace
+    from xifeng.trace import Outcome, Trace
 
     return Trace(outcome=Outcome.INJECTED, chars=5, e2e_ms=300, ms_asr=250)

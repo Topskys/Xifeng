@@ -10,25 +10,26 @@ Rust 侧 `crates/ime-post` 是同一套规则的实现（plan.md Step 2），本
 - 中文填充词清理仅在含 CJK 时生效（英文里 er/um 是正常词）
 
 后端选择：
-- 默认 `auto`：装了 `voiceime_rs` 扩展就用 Rust（`uv run python tools/build_ext.py` 构建）
-- `VOICEIME_POST_BACKEND=py` 强制走纯 Python（排障 / 无 Rust 环境的兜底）
+- 默认 `auto`：装了 `xifeng_rs` 扩展就用 Rust（`uv run python tools/build_ext.py` 构建）
+- `XIFENG_POST_BACKEND=py` 强制走纯 Python（排障 / 无 Rust 环境的兜底）
 """
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 
+from . import envs
+
 # ---------------------------------------------------------------- 后端
 
-_REQUESTED_BACKEND = os.environ.get("VOICEIME_POST_BACKEND", "auto").strip().lower()
+_REQUESTED_BACKEND = (envs.get("POST_BACKEND", "auto") or "auto").strip().lower()
 
 _rs_process = None
 _rs_stats = None
 if _REQUESTED_BACKEND != "py":
     try:  # pragma: no cover - 取决于是否构建过 Rust 扩展
-        from voiceime_rs import process as _rs_process, stats as _rs_stats
+        from xifeng_rs import process as _rs_process, stats as _rs_stats
     except ImportError:  # 没构建过扩展：静默回退，不改变行为
         _rs_process = None
         _rs_stats = None

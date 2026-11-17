@@ -31,7 +31,7 @@ from typing import Callable
 
 import numpy as np
 
-from voiceime_spike import hotkey, winenv
+from xifeng import hotkey, winenv
 
 VK_LCTRL = 0xA2
 VK_RCTRL = 0xA3

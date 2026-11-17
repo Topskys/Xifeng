@@ -99,7 +99,7 @@ WebView2 error: WindowsError(Error { code: HRESULT(0x800700AA), message: "请求
 $env:WEBVIEW2_USER_DATA_FOLDER = "D:\project\workspace\voice-ime\.rust-temp\wv2"
 ```
 
-设了之后窗口正常打开（标题 `VoiceIME`），Python 子进程也随之启动。
+设了之后窗口正常打开（标题 `Xifeng`），Python 子进程也随之启动。
 
 **验证成功的完整命令**：
 
@@ -107,11 +107,11 @@ $env:WEBVIEW2_USER_DATA_FOLDER = "D:\project\workspace\voice-ime\.rust-temp\wv2"
 cd spike
 tools\dev-env.cmd                      # 已含 WEBVIEW2_USER_DATA_FOLDER
 cd frontend\src-tauri
-$env:VOICEIME_PYTHON = "D:\project\workspace\voice-ime\spike\.venv\Scripts\python.exe"
-.\target\release\voiceime-tauri.exe
+$env:XIFENG_PYTHON = "D:\project\workspace\voice-ime\spike\.venv\Scripts\python.exe"
+.\target\release\xifeng.exe
 ```
 
-判据：窗口标题出现 `VoiceIME`，且 `Get-Process python` 能看到子进程。
+判据：窗口标题出现 `Xifeng`，且 `Get-Process python` 能看到子进程。
 
 ## 目录布局（重要）
 

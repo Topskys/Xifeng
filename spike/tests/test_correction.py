@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from voiceime_spike import correction
+from xifeng import correction
 
 
 # ---------------------------------------------------------------- 守卫：采纳
@@ -17,9 +17,9 @@ from voiceime_spike import correction
     ("src", "cand"),
     [
         ("这个会议机要发给我", "这个会议纪要发给我。"),
-        ("用 voice i e 打字", "用 VoiceIME 打字"),
+        ("用 xi feng 打字", "用 Xifeng 打字"),
         ("请把 red me 文件发给张三", "请把 README 文件发给张三"),
-        ("帮我把 voice i e 的 read me 就交就提交", "帮我把 VoiceIME 的 README 提交"),
+        ("帮我把 xi feng 的 read me 就交就提交", "帮我把 Xifeng 的 README 提交"),
         ("呃 今天 嗯 我们开个会", "呃 今天 我们 开个会"),
     ],
 )
@@ -39,7 +39,7 @@ def test_case_and_space_fix_is_accepted() -> None:
     ("src", "cand", "reason"),
     [
         # 句首丢词：模型实测会把"帮我"吞掉
-        ("帮我把 voice i e 的 read me 提交", "把VoiceIME的README提交", "drop-start"),
+        ("帮我把 xi feng 的 read me 提交", "把Xifeng的README提交", "drop-start"),
         # 只补句号：用户没说的标点不要硬加
         ("这个会议机要发给我", "这个会议机要发给我。", "punct-only"),
         # 句尾续写（三点 → 三点二十）
@@ -107,7 +107,7 @@ def test_model_path_can_be_overridden(monkeypatch, tmp_path) -> None:  # noqa: A
 
 def test_llm_model_lives_in_data_dir_not_in_package(monkeypatch, tmp_path) -> None:  # noqa: ANN001
     """纠错模型默认放数据目录（与 SQLite 同处），不打进交付包。"""
-    from voiceime_spike import paths
+    from xifeng import paths
 
     data = tmp_path / "data"
     app = tmp_path / "app"
@@ -128,7 +128,7 @@ def test_llm_model_lives_in_data_dir_not_in_package(monkeypatch, tmp_path) -> No
 
 def test_llm_model_falls_back_to_exe_dir(monkeypatch, tmp_path) -> None:  # noqa: ANN001
     """旧布局（模型放在 exe 同级 models/llm）仍然可用。"""
-    from voiceime_spike import paths
+    from xifeng import paths
 
     data = tmp_path / "data"
     app = tmp_path / "app"

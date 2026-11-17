@@ -1,5 +1,5 @@
 @echo off
-REM VoiceIME dev env. Usage:  tools\dev-env.cmd   then run commands in the same window.
+REM Xifeng dev env. Usage:  tools\dev-env.cmd   then run commands in the same window.
 REM Why not .ps1: local PowerShell execution policy blocks unsigned scripts.
 REM Docs: docs/02-guides/tauri-env.md
 

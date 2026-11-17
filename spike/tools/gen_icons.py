@@ -1,6 +1,6 @@
 """生成统一应用图标（exe / 任务栏 / favicon）：黑色圆角方块 + 白色麦克风。
 
-设计基准是 `voiceime_spike/tray.py:_image()`（64px：黑圆角方块 + 1px 浅灰描边 +
+设计基准是 `xifeng/tray.py:_image()`（64px：黑圆角方块 + 1px 浅灰描边 +
 白麦克风）。本脚本把同一几何参数放大 16 倍画在 1024 母版上，再缩小导出全套
 `src-tauri/icons/` 与 `frontend/public/favicon.svg` 对应的位图。
 

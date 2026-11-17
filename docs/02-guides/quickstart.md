@@ -48,13 +48,13 @@ uv run python run_spike.py --text "呃 今天 我们 嗯 开个会，讨论一�
 ```
 
 纠错默认关，`--text` 不会调用模型。要试本地模型纠错（首次约 4s 冷启动；模型放
-统一根 `%LOCALAPPDATA%\VoiceIME\models\llm`，见 packaging.md 的 D15 节）：
+统一根 `%LOCALAPPDATA%\Xifeng\models\llm`，见 packaging.md 的 D15 节）：
 
 ```bash
 > uv run python run_spike.py --text "帮我把 voice i e 的 read me 提交" --correct --no-inject
 [correct] applied fixes=1 3515ms
 [post] raw='帮我把 voice i e 的 read me 提交'
-[post] cleaned='帮我把 VoiceIME 的 README 提交'
+[post] cleaned='帮我把 Xifeng 的 README 提交'
 ```
 
 模型改坏时会回退原文并打印原因（G32）：
@@ -186,7 +186,7 @@ uv run python quality_check.py
 
 ## 9. 看历史 / 统计 / 改设置
 
-数据都在一个 SQLite 文件里（`%LOCALAPPDATA%\VoiceIME\voiceime.db`；
+数据都在一个 SQLite 文件里（`%LOCALAPPDATA%\Xifeng\xifeng.db`；
 Low 进程回退 `spike/.data`）。见 `03-core-concepts/storage.md`。
 
 ```bash
@@ -224,12 +224,12 @@ uv run python run_spike.py --autostart off
 - 托盘右键：打开主窗口 / 统计 / 模型 / 配置 / 历史 / 关于 / 开机自启 / 退出
 - `--tray` 等于 `--ptt --times 0`：一直等热键，直到菜单「退出」；默认按需开麦，不占设备
 - 菜单里的页面都开 Web 窗口（`--web --tab`）；已有服务时只开窗口，不重复监听端口
-- 控制台被隐藏后，日志在 `%LOCALAPPDATA%\VoiceIME\voiceime.log`
-  （源码 Low 进程回退 `spike/.data/voiceime.log`）
+- 控制台被隐藏后，日志在 `%LOCALAPPDATA%\Xifeng\xifeng.log`
+  （源码 Low 进程回退 `spike/.data/xifeng.log`）
 - 只允许一个托盘实例；重复启动会直接退出（命名 Mutex）
 
 > 开机自启命令带 `--tray`。源码形态写的是
-> `"<python.exe>" "<spike>\run_spike.py" --tray`；冻结形态写的是 `"VoiceIME.exe" --tray`。
+> `"<python.exe>" "<spike>\run_spike.py" --tray`；冻结形态写的是 `"Xifeng.exe" --tray`。
 > 若移动了程序目录，先 `--autostart off` 再 `on` 一次。
 
 ## 常见故障

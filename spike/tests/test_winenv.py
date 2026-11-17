@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from voiceime_spike import winenv
+from xifeng import winenv
 
 
 @pytest.mark.skipif(not winenv.IS_WINDOWS, reason="只有 Windows 有令牌")

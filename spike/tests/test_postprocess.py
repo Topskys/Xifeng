@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from voiceime_spike import postprocess as pp
+from xifeng import postprocess as pp
 
 
 # ---------------------------------------------------------------- 幻觉（G10）

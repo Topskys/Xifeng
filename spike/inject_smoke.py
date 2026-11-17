@@ -19,7 +19,7 @@ import sys
 import threading
 import time
 
-from voiceime_spike import inject as inj
+from xifeng import inject as inj
 
 CASES = [
     "你好，世界",
@@ -43,7 +43,7 @@ def run_case(text: str, chunk: int = inj.CHUNK_UNITS) -> tuple[bool, str, str, f
     state: dict[str, object] = {"done": False, "outcome": None, "why": "", "ms": 0.0}
 
     root = tk.Tk()
-    root.title("VoiceIME 注入 smoke")
+    root.title("Xifeng 注入 smoke")
     root.geometry("700x300+200+200")
     widget = tk.Text(root, font=("Microsoft YaHei UI", 11))
     widget.pack(fill="both", expand=True)

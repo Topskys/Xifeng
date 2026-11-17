@@ -12,7 +12,7 @@ import time
 import numpy as np
 import pytest
 
-from voiceime_spike import hotkey
+from xifeng import hotkey
 
 
 class FakeStream:

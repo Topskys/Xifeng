@@ -12,11 +12,12 @@ G39：首段起点 / 末段终点额外留 300ms（Silero 起音判定有 100–
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+
+from . import envs
 
 # ---------------------------------------------------------------- 后端
 #
@@ -24,12 +25,12 @@ import numpy as np
 # **行为基准**：两边必须逐字节等价，由 tests/test_vad_parity.py 证明。
 # Silero 模型前向仍留在 Python（sherpa-onnx），Rust 只接它吐出的概率流。
 
-_REQUESTED_BACKEND = os.environ.get("VOICEIME_VAD_BACKEND", "auto").strip().lower()
+_REQUESTED_BACKEND = (envs.get("VAD_BACKEND", "auto") or "auto").strip().lower()
 
 _rs = None
 if _REQUESTED_BACKEND != "py":
     try:  # pragma: no cover - 取决于是否构建过 Rust 扩展
-        import voiceime_rs as _rs
+        import xifeng_rs as _rs
     except ImportError:  # 没构建过扩展：静默回退，不改变行为
         _rs = None
 

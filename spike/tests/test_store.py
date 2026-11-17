@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from voiceime_spike.store import SCHEMA_VERSION, Store
-from voiceime_spike.trace import Outcome, Trace
+from xifeng.store import SCHEMA_VERSION, Store
+from xifeng.trace import Outcome, Trace
 
 
 def _trace(outcome: Outcome = Outcome.INJECTED, ts: str = "", **kw) -> Trace:  # noqa: ANN003
@@ -21,7 +21,7 @@ def _trace(outcome: Outcome = Outcome.INJECTED, ts: str = "", **kw) -> Trace:  #
 
 @pytest.fixture()
 def store(tmp_path: Path):  # noqa: ANN201
-    s = Store(tmp_path / "voiceime.db")
+    s = Store(tmp_path / "xifeng.db")
     yield s
     s.close()
 
@@ -156,7 +156,7 @@ def test_legacy_hotkey_value_normalized_to_one_side(store: Store) -> None:
     左右互斥后如果继续两侧都触发，用户设了哪一边都形同虚设；
     归一在 settings.load 做，老库不用重写。
     """
-    from voiceime_spike import settings
+    from xifeng import settings
 
     store.set_setting("hotkey", "ctrl")
     assert settings.load(store).hotkey == "rctrl"

@@ -29,7 +29,7 @@ ERROR_ALREADY_EXISTS = 183
 _mutex = None
 
 
-def acquire_single_instance(name: str = "Local\\VoiceIME-Tray") -> bool:
+def acquire_single_instance(name: str = "Local\\Xifeng-Tray") -> bool:
     """托盘只允许一个实例：两个实例会各自装钩子、各录一份音。
 
     用命名 Mutex（会话内 `Local\\`，不需要管理员）。进程退出时内核自动释放，
@@ -73,13 +73,13 @@ def _image():
 def gui_command(tab: str = "stats") -> list[str]:
     """打开主窗口的命令（子进程，独立于托盘/PTT 进程）。
 
-    Tauri 交付形态（D14）：优先打开壳 exe（voiceime-tauri.exe，GUI 窗口），
+    Tauri 交付形态（D14）：优先打开壳 exe（xifeng.exe，GUI 窗口），
     `tab` 参数由前端 hash 决定，这里带不上（壳默认落在统计页）；
     找不到壳时退回 Web GUI（`--web --tab`，Edge --app 旧方案，仍是可用兜底）。
     """
     if getattr(sys, "frozen", False):
-        # sidecar 在 `<安装根>\core\VoiceIME-Core\VoiceIME-Core.exe`，壳在安装根。
-        shell = Path(sys.executable).resolve().parents[2] / "voiceime-tauri.exe"
+        # sidecar 在 `<安装根>\core\Xifeng-Core\Xifeng-Core.exe`，壳在安装根。
+        shell = Path(sys.executable).resolve().parents[2] / "xifeng.exe"
         if shell.is_file():
             return [str(shell)]
         return [sys.executable, "--web", "--tab", tab]
@@ -105,7 +105,7 @@ class Tray:
         self,
         on_quit: Callable[[], None],
         *,
-        title: str = "VoiceIME —— 按住 Ctrl 说话",
+        title: str = "Xifeng —— 按住 Ctrl 说话",
         on_open: Callable[[], None] | None = None,
     ) -> None:
         self._on_quit = on_quit
@@ -137,7 +137,7 @@ class Tray:
         """启动托盘。优先 `run_detached`，不支持时退到后台线程。"""
         import pystray
 
-        self._icon = pystray.Icon("VoiceIME", _image(), self._title, self._menu())
+        self._icon = pystray.Icon("Xifeng", _image(), self._title, self._menu())
         try:
             self._icon.run_detached()
         except NotImplementedError:

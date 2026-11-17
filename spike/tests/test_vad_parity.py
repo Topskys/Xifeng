@@ -1,4 +1,4 @@
-"""Rust（voiceime_rs）与 Python（vad.py）VAD 实现的逐字节等价性。
+"""Rust（xifeng_rs）与 Python（vad.py）VAD 实现的逐字节等价性。
 
 与 test_postprocess_parity.py 同一思路：Python 侧是行为基准，Rust 是等价实现，
 任何一边漏改都会红。没有扩展时自动 skip。
@@ -9,9 +9,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from voiceime_spike import vad
+from xifeng import vad
 
-rs = pytest.importorskip("voiceime_rs", reason="未构建 Rust 扩展（tools/build_ext.py）")
+rs = pytest.importorskip("xifeng_rs", reason="未构建 Rust 扩展（tools/build_ext.py）")
 
 
 def _cfg_kwargs(cfg: vad.VadConfig) -> dict:
@@ -81,7 +81,7 @@ def test_segment_parity_on_real_fixture() -> None:
     wav = Path(__file__).resolve().parents[1] / "fixtures" / "quality" / "01.wav"
     if not wav.exists():
         pytest.skip("缺少 fixtures/quality/01.wav")
-    from voiceime_spike import audio
+    from xifeng import audio
 
     pcm, rate = audio.read_wav(str(wav))
     assert rate == 16000
@@ -157,7 +157,7 @@ def test_trim_parity_on_real_fixture() -> None:
     wav = Path(__file__).resolve().parents[1] / "fixtures" / "quality" / "03.wav"
     if not wav.exists():
         pytest.skip("缺少 fixtures/quality/03.wav")
-    from voiceime_spike import audio
+    from xifeng import audio
 
     pcm, _ = audio.read_wav(str(wav))
     cfg = vad.TrimConfig()

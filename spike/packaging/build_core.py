@@ -6,10 +6,10 @@
   `src-tauri/resources/core/`，随 `tauri build` 一起进安装包。
 
 产物结构（Tauri 打包后，onedir 保持 PyInstaller 的 app 目录形态）：
-    VoiceIME/
-      voiceime-tauri.exe          ← Tauri 壳
-      core/VoiceIME-Core/         ← 本脚本产出（onedir）
-        VoiceIME-Core.exe         ← Python 解释器 + 全部依赖
+    Xifeng/
+      xifeng.exe          ← Tauri 壳
+      core/Xifeng-Core/         ← 本脚本产出（onedir）
+        Xifeng-Core.exe         ← Python 解释器 + 全部依赖
         _internal/                ← 依赖目录（必须与 exe 同级）
         run_spike.py              ← py.rs 的 core_dir() 靠它认目录
 
@@ -32,10 +32,10 @@ from pathlib import Path
 SPIKE_DIR = Path(__file__).resolve().parents[1]
 REPO = SPIKE_DIR.parent
 sys.path.insert(0, str(SPIKE_DIR))
-from voiceime_spike import paths  # noqa: E402  模型统一根（D15）
+from xifeng import paths  # noqa: E402  模型统一根（D15）
 ENTRY = SPIKE_DIR / "run_spike.py"
 OUT = SPIKE_DIR / "frontend" / "src-tauri" / "resources" / "core"
-NAME = "VoiceIME-Core"
+NAME = "Xifeng-Core"
 
 
 def build(work: Path, clean: bool) -> Path:
@@ -159,10 +159,10 @@ MODELS_OUT = OUT.parent / "models"  # resources/models → 安装目录 models/
 
 
 def copy_models() -> None:
-    """把**模型统一根**（`%LOCALAPPDATA%\\VoiceIME\\models`）复制进 Tauri 资源。
+    """把**模型统一根**（`%LOCALAPPDATA%\\Xifeng\\models`）复制进 Tauri 资源。
 
     （D15，2026-11-11）**默认不复制**：安装器不带模型（2026-11-11 用户决策），
-    运行时从统一根 `%LOCALAPPDATA%\\VoiceIME\\models` 读。只有要出
+    运行时从统一根 `%LOCALAPPDATA%\\Xifeng\\models` 读。只有要出
     「离线开箱即用」包时才传 `--with-models`，产物随 `tauri build` 进
     安装目录 `models/` 作就地兜底（安装目录只读也能用；
     用户在统一根放模型时优先级更高）。

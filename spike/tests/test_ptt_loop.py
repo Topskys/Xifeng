@@ -8,7 +8,7 @@ from __future__ import annotations
 import numpy as np
 
 import run_spike
-from voiceime_spike import hotkey
+from xifeng import hotkey
 
 
 def ptt_result(**kw) -> hotkey.PttResult:

@@ -74,7 +74,7 @@
 | 影响 | 例句 | 性质 |
 |---|---|---|
 | 数字改写成阿拉伯数字 | `一百五十毫秒` → `150毫秒`、`三点` → `3点` | 表面形式，正文里无法还原 |
-| **混排英文退化** | `VoiceIME 的 README` → `voiceice imME的readmin` | 真实错误，CER 4.5% → 27.3% |
+| **混排英文退化** | `Xifeng 的 README` → `voiceice imME的readmin` | 真实错误，CER 4.5% → 27.3% |
 
 同一批 5 句真人录音：`zh + ITN` 平均 CER 15.5%，`zh + 关 ITN` 3.3%。
 
@@ -145,7 +145,7 @@ ALT 技巧（G6）抢前台**成功**（`_restore_focus → True`），跨进程
 改成 Ctrl 长按后，每次 `Ctrl+C` / `Ctrl+V` 都是一次"按下-松开"。
 若不做保护，复制粘贴会触发录音并把环境噪声注入光标。
 
-对策：`min_hold_ms = 250`（`spike/voiceime_spike/hotkey.py`）。按住不足 250ms 直接丢弃，
+对策：`min_hold_ms = 250`（`spike/xifeng/hotkey.py`）。按住不足 250ms 直接丢弃，
 不进 ASR、不产生 Trace。实测 Ctrl+C 的按住时长约 60–120ms，与门槛有足够间距。
 
 两个待观察项：
@@ -267,7 +267,7 @@ Tk 窗口：收到 43 个键 → ['Control_R', ..., 'a', ...]
 本环境里唯一能验证的时序语义是 `key_diag.py` 第 5 步：Tk 窗口里按住 Ctrl，
 量真实按住时长与 `min_hold_ms` 门槛 —— 窗口消息可用，钩子不可用。
 
-**已闭环（2026-10-29 22:07）**：把 exe 放在 `%LOCALAPPDATA%\VoiceIME-build\dist\VoiceIME`
+**已闭环（2026-10-29 22:07）**：把 exe 放在 `%LOCALAPPDATA%\Xifeng-build\dist\Xifeng`
 （Medium）后，**物理 Ctrl** 已实测被钩子收到 —— SQLite 里出现 `mode=ptt`、
 `speech_ms=16601`、`outcome=Injected` 的记录，说明 Low 是唯一障碍，不是 UIPI/安全软件。
 判据仍然是 exe 启动第一行的 `完整性=Medium(0x2000)`。
@@ -288,7 +288,7 @@ Tk 窗口：收到 43 个键 → ['Control_R', ..., 'a', ...]
 
 - `asr.DEFAULT_LANGUAGE = "zh"`，语言 MUST 显式传入，禁止依赖 auto
 - 换语言（英文/日文）要走配置项 + 用户显式选择，不能靠模型猜
-- 固定 `zh` 的副作用：混排英文词会被按中文音素拆（`VoiceIME` → `voice i e`），
+- 固定 `zh` 的副作用：混排英文词会被按中文音素拆（`Xifeng` → `voice i e`），
   属模型能力边界，靠可选的模型纠错补（G32），不属于配置问题
 - 固定 `zh` / 关 ITN 都**不增加推理耗时**（512 vs 528ms），可以放心写死
 
@@ -368,7 +368,7 @@ e2e 验证（Medium 进程 + 自注入 Ctrl 驱动真实 `--ptt`，常驻流模�
 **A. 在仓库里构建 = 打出 Low 完整性 exe（功能直接废）**
 
 第一次 `uv run python packaging/build.py`，`tempfile.gettempdir()` 返回
-`C:\Users\...\Temp`，但实际产物落在 `spike\voiceime-dist`。原因：
+`C:\Users\...\Temp`，但实际产物落在 `spike\xifeng-dist`。原因：
 
 ```
 uv run → .venv\Scripts\python.exe（在 Low 目录里创建 → 进程 Low）
@@ -377,7 +377,7 @@ tempfile._get_default_tempdir() 探测失败 → 静默退回当前目录
 ```
 
 于是 dist 在仓库内（Low 标签）→ exe 也是 Low → 全局钩子收不到硬件按键（同 G21）。
-**判据**：`VoiceIME.exe --ptt` 第一行必须是 `完整性=Medium(0x2000)`。
+**判据**：`Xifeng.exe --ptt` 第一行必须是 `完整性=Medium(0x2000)`。
 
 对策：构建必须用**仓库外的解释器**，输出到 `%LOCALAPPDATA%`：
 
@@ -394,7 +394,7 @@ set PYTHONPATH=<spike>;<spike>\.venv\Lib\site-packages
 
 源码形态模型在 `<仓库根>\models`；打包后 `__file__` 在 `_MEIPASS/_internal/...`，
 `parents[2]` 与源码假设不一致，模型找不到、`backend=auto` 静默退回 mock。
-对策：`voiceime_spike/paths.py` 统一解析 —— 冻结时 `<exe 同级>/models/asr/...`，
+对策：`xifeng/paths.py` 统一解析 —— 冻结时 `<exe 同级>/models/asr/...`，
 源码时 `<仓库根>/models/asr/...`，`IME_MODELS_DIR` 始终最高优先。
 
 **C. sherpa-onnx 的 DLL 必须显式收集**
@@ -431,7 +431,7 @@ onefile 会把模型也解压一遍；onedir 里它只会让目录变大但启�
 
 ## G25 SQLite 在 Low 进程里建不了库：`%LOCALAPPDATA%` 是 no-write-up
 
-2026-10-29 接数据层时踩到。`Store()` 默认路径想放 `%LOCALAPPDATA%\VoiceIME\voiceime.db`，
+2026-10-29 接数据层时踩到。`Store()` 默认路径想放 `%LOCALAPPDATA%\Xifeng\xifeng.db`，
 但在本工作区跑（`.venv\Scripts\python.exe` 是 Low 进程）直接
 `sqlite3.OperationalError: unable to open database file` —— 看起来像"路径不存在"，
 其实是**目录建不出来**：Low 进程对 Medium 目录（`%LOCALAPPDATA%`）只有读权限。
@@ -442,14 +442,14 @@ onefile 会把模型也解压一遍；onedir 里它只会让目录变大但启�
 于是库悄悄落到仓库里。
 
 判据：`paths.data_dir()` 会先做一次"建目录 + 写探针文件"，失败才回退。打印
-`[db] db=...\voiceime.db` 时确认路径：
+`[db] db=...\xifeng.db` 时确认路径：
 
-- 源码 + Low 进程 → `<spike>\.data\voiceime.db`（正常，预期行为）
-- 源码/冻结 + Medium → `%LOCALAPPDATA%\VoiceIME\voiceime.db`
-- 冻结 + `%LOCALAPPDATA%` 不可写 → `<exe 同级>\data\voiceime.db`
+- 源码 + Low 进程 → `<spike>\.data\xifeng.db`（正常，预期行为）
+- 源码/冻结 + Medium → `%LOCALAPPDATA%\Xifeng\xifeng.db`
+- 冻结 + `%LOCALAPPDATA%` 不可写 → `<exe 同级>\data\xifeng.db`
 
 不要为了"便携"把库强制放 exe 同级：PyInstaller `--noconfirm` 重建 dist 会**清空整个目录**，
-上一版的历史会一起没（本机实测：重建后 `data\voiceime.db` 消失）。
+上一版的历史会一起没（本机实测：重建后 `data\xifeng.db` 消失）。
 用户数据放 `%LOCALAPPDATA%` 才能跨版本保留。
 
 另外两个相关坑：
@@ -485,20 +485,20 @@ except OSError:
 `AttributeError: 'NoneType' object has no attribute 'write'`。这类崩溃看起来像 GUI/数据库问题，
 其实是"程序没有地方写日志"。
 
-对策（`voiceime_spike/applog.py`）：
+对策（`xifeng/applog.py`）：
 
 ```python
 # GUI：有流就只把编码改成 UTF-8（errors=replace），没有流就落文件
 applog.setup()
 # 托盘：控制台要隐藏，强制落文件
-applog.setup(force_file=True)   # %LOCALAPPDATA%\VoiceIME\voiceime.log
+applog.setup(force_file=True)   # %LOCALAPPDATA%\Xifeng\xifeng.log
 ```
 
 - MUST 在做任何可能 `print` 的事情（开数据库、加载模型）**之前**调用
-- 日志轮转：超过 2MB 改名为 `voiceime.log.1`
+- 日志轮转：超过 2MB 改名为 `xifeng.log.1`
 - 只记长度/结果/trace，绝不记识别文本全文
 
-验证：`--tray` 启动后 `voiceime.log` 第一行应是 `[tray] 已启动…`，且进程
+验证：`--tray` 启动后 `xifeng.log` 第一行应是 `[tray] 已启动…`，且进程
 `MainWindowHandle=0`（控制台已隐藏）。
 
 ## G27 两个托盘实例各装一个钩子：一次按键录两份音
@@ -506,7 +506,7 @@ applog.setup(force_file=True)   # %LOCALAPPDATA%\VoiceIME\voiceime.log
 `--tray` 是常驻进程，用户很容易"以为没启动"又双击一次（开机自启 + 手动启动也会重叠）。
 两个实例都装 `WH_KEYBOARD_LL`、都开麦克风，结果同一句话被识别两次、注入两次。
 
-对策：命名 Mutex（`Local\\VoiceIME-Tray`）。第二个实例在加载模型**之前**就退出，
+对策：命名 Mutex（`Local\\Xifeng-Tray`）。第二个实例在加载模型**之前**就退出，
 并往日志写 `[tray] 已有实例在运行`。进程崩溃时内核自动释放，不会留下假锁。
 
 Mutex 只挡托盘（resident）形态；`--ptt --times 1`、`--gui`、CLI 子命令仍可并行，
@@ -654,14 +654,14 @@ Edge 必须用独立 `--user-data-dir` + `--remote-debugging-port=9222` + `--new
 |---|---|---|
 | `这个会议机要发给我` | `这个会议纪要发给我。` | ✅ 同音字 |
 | `请把 red me 文件发给张三` | `请把 README 文件发给张三` | ✅ 专有名词 |
-| `帮我把 voice i e 的 read me 提交` | `把VoiceIME的README提交` | ❌ **"帮我"被吞** |
+| `帮我把 voice i e 的 read me 提交` | `把Xifeng的README提交` | ❌ **"帮我"被吞** |
 | `今天的会推迟到下午三点` | `今天的会推迟到下午三点二十。` | ❌ 句尾续写 |
 | `这个会议机要发给我` | 原样返回 / 补句号 | 不稳定（0.5B 能力边界） |
 
 **结论：不能默认开，也不能"模型说啥就注入啥"。**
 
 - **默认关**：`Settings.model_correct = False`；配置页只有一个开关，没有术语表
-- **模型位置**：`%LOCALAPPDATA%\VoiceIME\models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf`
+- **模型位置**：`%LOCALAPPDATA%\Xifeng\models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf`
   （与 SQLite 同目录，**不进 dist/exe**；`IME_LLM_MODEL` 可覆盖）。缺失时开关禁用
 - **守卫**（`correction.check`）— 任一命中就回退原文：
   - 句首删字（`drop-start`，只允许语气词）
@@ -718,7 +718,7 @@ Edge 必须用独立 `--user-data-dir` + `--remote-debugging-port=9222` + `--new
 
 ## G34 录音浮窗的毛玻璃/圆角：Tk 不是 WPF，别指望 DWM 亚克力
 
-浮窗（`voiceime_spike/popup.py`）是 300×32 的细长条：左边 22px 应用图标，右边整条
+浮窗（`xifeng/popup.py`）是 300×32 的细长条：左边 22px 应用图标，右边整条
 镜像音柱，说话时随实时音量跳动。想要"毛玻璃 + 圆角"，踩了两条坑：
 
 | 做法 | 结果 |
@@ -759,7 +759,7 @@ LINK : fatal error LNK1104: 无法打开文件"C:\...\Temp\lnk{GUID}.tmp"
 旁证：Python 的 `tempfile.gettempdir()` 在这台机器上直接回退到**当前工作目录**。
 
 **解法**：构建时把 `TEMP`/`TMP` 指到 `D:\env\tmp`（`Authenticated Users: Modify`）。
-`spike/tools/build_ext.py` 就是 `cargo build` + 把 `voiceime_rs.dll` 改名 `.pyd` 放进
+`spike/tools/build_ext.py` 就是 `cargo build` + 把 `xifeng_rs.dll` 改名 `.pyd` 放进
 site-packages —— 与 `maturin develop` 等价，但绕开它的临时目录步骤。maturin 仍在 dev
 依赖里，给 CI / 无限制的机器打 wheel 用。
 
@@ -790,7 +790,7 @@ ModuleNotFoundError: No module named 'tkinter'
 ```
 
 **根因**：为了减小体积加了 `--exclude-module tkinter`（IPC 模式确实不弹浮窗），
-但 `voiceime_spike/popup.py` 在**模块顶层**就 `import tkinter`，而 `run_spike.py`
+但 `xifeng/popup.py` 在**模块顶层**就 `import tkinter`，而 `run_spike.py`
 无条件 `import popup`。于是不管走哪条路径，导入链都会踩到它。
 
 **教训**：`--exclude-module` 只对「确认没有任何顶层 import 链能到达」的模块安全。
@@ -805,19 +805,19 @@ ModuleNotFoundError: No module named 'tkinter'
 **症状**：重新构建时报
 
 ```
-error: failed to remove file `...\target\release\voiceime-tauri.exe`
+error: failed to remove file `...\target\release\xifeng.exe`
 Caused by: 拒绝访问。 (os error 5)
 ```
 
 **根因**：上一轮验证时起的壳还在跑，运行中的 exe 文件被 Windows 锁住，
-cargo 无法覆盖/删除它。与「构建前停托盘进程（占 `VoiceIME.exe`）」是同一类问题——
+cargo 无法覆盖/删除它。与「构建前停托盘进程（占 `Xifeng.exe`）」是同一类问题——
 **产物自己锁自己**，不是权限配置坏了。
 
 **解法**：构建前先杀壳进程（Git Bash 里 `//` 是防止 MSYS 把 `/F` 当路径吞掉）：
 
 ```bash
-taskkill //F //IM voiceime-tauri.exe
-taskkill //F //IM VoiceIME-Core.exe 2>/dev/null   # 壳拉起的核心也要一起收
+taskkill //F //IM xifeng.exe
+taskkill //F //IM Xifeng-Core.exe 2>/dev/null   # 壳拉起的核心也要一起收
 ```
 
 **教训**：每次 `tauri build` / `build.py` 之前，先确认上一轮的产物进程已退出；
@@ -825,7 +825,7 @@ taskkill //F //IM VoiceIME-Core.exe 2>/dev/null   # 壳拉起的核心也要一�
 
 ## G38 NSIS 安装包报「Error writing temporary file」
 
-**症状**：双击 `VoiceIME_x.y.z_x64-setup.exe` 直接弹
+**症状**：双击 `Xifeng_x.y.z_x64-setup.exe` 直接弹
 
 ```
 NSIS Error: Error writing temporary file. Make sure your temp folder is valid.
@@ -844,17 +844,17 @@ NSIS Error: Error writing temporary file. Make sure your temp folder is valid.
 ::    在 target\ 里产出的 setup.exe 继承 `Mandatory Label\Low (NW)`；
 ::    Low 进程写不进 TEMP / Program Files → 必报本错，换 TEMP 也没用。
 ::    修复：把安装器复制出仓库再装（Copy-Item 重建文件，标签随目标目录走）：
-copy /Y target\release\bundle\nsis\VoiceIME_0.1.0_x64-setup.exe D:\env\
+copy /Y target\release\bundle\nsis\Xifeng_0.1.0_x64-setup.exe D:\env\
 ::    复制后 icacls 应看不到 Mandatory Label 行，即可正常安装。
 ::    验证方法：icacls setup.exe —— 有 "Low Mandatory Level" 行就是带毒标签。
 :: 1) 仍报错再指干净 TEMP
 mkdir D:\env\tmp\nsis-install
 set TEMP=D:\env\tmp\nsis-install
 set TMP=D:\env\tmp\nsis-install
-D:\env\VoiceIME_0.1.0_x64-setup.exe
+D:\env\Xifeng_0.1.0_x64-setup.exe
 
 :: 2) 解除 Mark of the Web 后以管理员运行
-powershell -c "Unblock-File 'D:\env\VoiceIME_0.1.0_x64-setup.exe'"
+powershell -c "Unblock-File 'D:\env\Xifeng_0.1.0_x64-setup.exe'"
 
 :: 3) 查杀软拦截记录（Windows 安全中心 → 保护历史）
 ```
@@ -1027,3 +1027,64 @@ VAD 的 `head_pad_ms` 也救不了（那段音频根本不存在）。要彻底�
    但把它摆在 `show()` 前面是纯粹的实现浪费——并行后用户感知直接回到观察窗的 150ms。
 2. 跨线程共享"按键判定"时，注意 `drain_presses` 的取走语义：判定结果要么回传，
    要么只让一个线程消费，否则组合键会漏判（G40 的防线会静默失效）。
+
+## G43 改名别只改字符串：`%LOCALAPPDATA%` / 注册表 / sidecar 名都是用户数据契约
+
+**背景**（D21，2026-11-16 用户决策）：项目由 `VoiceIME` 全量改名为 **Xifeng**（溪风）。
+改名看起来是查找替换，实际有三类"看不见的契约"：
+
+1. **磁盘路径**：`%LOCALAPPDATA%\VoiceIME\{xifeng.db,models,*.log}` —— 直接改默认值，
+   老用户的历史、设置、228MB 模型全部"消失"（应用会安静地新建一个空库）。
+2. **注册表**：`HKCU\...\Run\VoiceIME` —— 只改新值名，旧值还在，开机跑两个实例。
+3. **sidecar 名**：壳按文件名认 Python 核（`Xifeng-Core.exe`），改名后路径找不到，
+   表现为"启动即无语音"，且错误只在一行日志里。
+
+**映射表（一次改全）**：
+
+| 层 | 旧 | 新 |
+|---|---|---|
+| 产品/显示名 | VoiceIME | **Xifeng**（溪风） |
+| Tauri productName / identifier | VoiceIME / com.voiceime.app | Xifeng / com.xifeng.app |
+| 壳 exe | voiceime-tauri.exe | xifeng.exe |
+| Python 核 | VoiceIME-Core | Xifeng-Core |
+| 数据目录 | `%LOCALAPPDATA%\VoiceIME` | `%LOCALAPPDATA%\Xifeng` |
+| SQLite / 日志 | voiceime.db / voiceime.log | xifeng.db / xifeng.log |
+| 自启值 | `Run\VoiceIME` | `Run\Xifeng` |
+| Python 包 / PyO3 模块 | voiceime_spike / voiceime_rs | xifeng / xifeng_rs |
+| 环境变量 | `VOICEIME_*` | `XIFENG_*`（旧名在壳里仍兼容读取） |
+
+**迁移规则（`paths.migrate_legacy_data`，入口显式调用）**：
+
+- `IME_DATA_DIR` 显式指定时**不动**（用户已接管位置）
+- 新目录不存在 → 整目录 `rename`（同卷瞬时，模型不用复制 228MB）
+- 新目录是空壳（`data_dir()` 的 `_usable()` 可能先建出来）→ 删空壳再 rename
+- 新目录已有数据 → 只补旧目录里**缺的**条目，同名一律不覆盖
+- 库/日志改名时带上 `-wal`/`-shm`；`voiceime.db` 已改为 `xifeng.db`
+- **任何一步失败只告警不拦启动**；`db_path()` 与 `models_root()` 仍会回退到旧目录，
+  保证"迁移失败 ≠ 历史/模型消失"
+
+**为什么迁移不放进 `data_dir()`**：路径函数是纯查询，打包脚本、测试、`--autostart`
+都会调用它；在里面偷偷改磁盘会让"跑一次构建"就搬走用户数据。迁移必须由 `main()`
+显式调用（`run_spike.py` 已接），且幂等。
+
+**验收**：`tests/test_paths.py` 覆盖整目录接管、空壳、已有新库不覆盖、显式
+`IME_DATA_DIR` 跳过、迁移失败回退旧库/旧模型；真实机器上旧目录含 228MB 模型时
+启动一次即完成（日志 `[paths] 已迁移旧版数据 → %LOCALAPPDATA%\Xifeng`）。
+
+**踩坑（2026-11-17 实测）**：在仓库目录里拿 `spike/.venv/Scripts/python.exe` 手动跑迁移，
+会把 `rename` 变成 `PermissionError(13, '拒绝访问')`。根因不是代码：仓库带 **Low 完整性标签**
+（G21/G24），venv 里的 `python.exe` 继承了这个标签，`icacls` 可见
+`Mandatory Label\Low Mandatory Level:(I)(NW)`；于是该进程**只能写 Low 对象**，
+对 `%LOCALAPPDATA%`、`D:\env\*`、`%TEMP%` 一律 `EACCES`（同一个路径用 PowerShell / 系统
+Python 就正常）。所以迁移/落盘类验证 MUST 用 **复制到仓库外再运行的产物**
+（`resources/core/Xifeng-Core` → `D:\env\tmp\...`，robocopy 到 Medium 目录后标签即脱落），
+或用仓库外的解释器；不要拿 venv 里的 Python 直接验证"能不能写用户目录"。
+
+**踩坑（2026-11-17 二次实测）**：迁移日志写在 `ipc_mode()` 之前，而 Windows 下
+stderr 默认是 gbk；壳按 UTF-8 逐行读，第一行中文就 `stream did not contain valid UTF-8`，
+**整条 sidecar 诊断管道当场断流**（语音本身不受影响，但后续错误全看不见）。
+修法：`main()` 里先看 `args.ipc`，把 `sys.stderr` 提前 reconfigure 成 UTF-8，
+不能等进 `ipc_mode()` 才设。
+
+**教训**：改名要先列"用户数据契约清单"（磁盘/注册表/进程名/环境变量/安装器/日志编码），
+再动字符串；只改显示名的替换是假改名。

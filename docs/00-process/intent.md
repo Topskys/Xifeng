@@ -1,4 +1,4 @@
-# Intent: VoiceIME — 本地语音输入法（M0 起步）
+# Intent: Xifeng — 本地语音输入法（M0 起步）
 
 Author: owner  
 Status: draft → 待 G0 批准  

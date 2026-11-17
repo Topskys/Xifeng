@@ -33,7 +33,7 @@ CHROME_CANDIDATES = (
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",   # 回退
 )
-REPO = os.environ.get("IME_REPO", "qxsvsq81/VoiceIME")   # 更新检查 / GitHub 跳转用
+REPO = os.environ.get("IME_REPO", "qxsvsq81/Xifeng")   # 更新检查 / GitHub 跳转用
 PORT = 8642  # 与 frontend/vite.config.ts 的 dev 代理一致
 PAGES = ("stats", "models", "config", "history", "about")
 
@@ -345,7 +345,7 @@ class Api:
         try:
             req = urllib.request.Request(
                 f"https://api.github.com/repos/{REPO}/releases/latest",
-                headers={"User-Agent": "voiceime"},
+                headers={"User-Agent": "xifeng"},
             )
             with urllib.request.urlopen(req, timeout=6) as r:
                 data = _json.loads(r.read().decode("utf-8"))

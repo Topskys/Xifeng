@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from voiceime_spike import webgui
-from voiceime_spike.store import Store
+from xifeng import webgui
+from xifeng.store import Store
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ def test_models_use_rejects_incomplete_dir(api, tmp_path):
 
 
 def test_history_endpoints(api):
-    from voiceime_spike.trace import Outcome, Trace
+    from xifeng.trace import Outcome, Trace
 
     t = Trace(outcome=Outcome.INJECTED, e2e_ms=300, ms_asr=250, fixes=1).start()
     api.store.add_history(t, "你好", raw_text="你好", clean_text="你好")

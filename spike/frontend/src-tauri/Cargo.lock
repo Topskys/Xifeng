@@ -3877,21 +3877,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
-name = "voiceime-tauri"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "cpal",
- "ime-post",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "windows 0.58.0",
- "winreg 0.52.0",
-]
-
-[[package]]
 name = "vswhom"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4699,6 +4684,21 @@ dependencies = [
  "libc",
  "once_cell",
  "pkg-config",
+]
+
+[[package]]
+name = "xifeng"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "cpal",
+ "ime-post",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "windows 0.58.0",
+ "winreg 0.52.0",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 """本地小模型纠错：Qwen2.5-0.5B-Instruct（GGUF）+ llama.cpp，CPU 推理。
 
-为什么不用规则：规则只能覆盖"已知错法"（`voice i e` → `VoiceIME`），换一个错法就失效。
+为什么不用规则：规则只能覆盖"已知错法"（`voice i e` → `Xifeng`），换一个错法就失效。
 本地小模型能自己判断同音字/专有名词/重复词，代价是延迟与不可控。
 
 所以这里做两件事，缺一不可：
@@ -51,8 +51,8 @@ SYSTEM_PROMPT = (
     "无法确定时原样返回。只输出修正后的句子，不要解释、不要引号、不要序号。\n"
     "示例：\n"
     "这个会议机要发给我 → 这个会议纪要发给我\n"
-    "把 voice i e 的 read me 改一下 → 把 VoiceIME 的 README 改一下\n"
-    "帮我把 voice i e 的 read me 提交 → 帮我把 VoiceIME 的 README 提交"
+    "把 voice i e 的 read me 改一下 → 把 Xifeng 的 README 改一下\n"
+    "帮我把 voice i e 的 read me 提交 → 帮我把 Xifeng 的 README 提交"
 )
 
 

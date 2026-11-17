@@ -1,6 +1,6 @@
 //! 光标注入：Windows SendInput + KEYEVENTF_UNICODE，剪贴板兜底。
 //!
-//! **这是 `spike/voiceime_spike/inject.py` 的 Rust 等价实现**：语义、常量、
+//! **这是 `spike/xifeng/inject.py` 的 Rust 等价实现**：语义、常量、
 //! 每个 sleep、每个失败路径都逐段对齐 —— Python 版是大量实测踩坑打磨出来的
 //! （G2/G3/G6/G7/G13/G20，编号见 `docs/05-gotchas.md`）。改这里之前先读
 //! Python 原文；任何行为变更必须两边同时改。

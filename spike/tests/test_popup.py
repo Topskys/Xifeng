@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from voiceime_spike import popup
+from xifeng import popup
 
 
 def test_layout_is_32px_strip() -> None:
@@ -49,7 +49,7 @@ def test_blend_endpoints_and_midpoint() -> None:
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_glass_uses_design_tokens(theme: str) -> None:
     """浮窗配色必须来自主界面主题（主题跟随），不许写死另一套 hex。"""
-    from voiceime_spike.ui import DARK, LIGHT
+    from xifeng.ui import DARK, LIGHT
 
     t = DARK if theme == "dark" else LIGHT
     g = popup._Glass(theme)

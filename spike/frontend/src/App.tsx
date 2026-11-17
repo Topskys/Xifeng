@@ -84,7 +84,7 @@ export default function App() {
     let cancelled = false
     tauri.event
       .listen("voice://elevated", () => {
-        showToast("目标窗口以管理员权限运行，收不到语音输入。请以管理员身份重启 VoiceIME，或换普通权限窗口。", false)
+        showToast("目标窗口以管理员权限运行，收不到语音输入。请以管理员身份重启 Xifeng，或换普通权限窗口。", false)
       })
       .then((u) => {
         if (cancelled) u()
@@ -137,7 +137,7 @@ export default function App() {
               <Mic className="size-3.5 text-primary-foreground" />
             </div>
             <div className="min-w-0">
-              <div className="text-[13px] font-bold leading-tight">VoiceIME</div>
+              <div className="text-[13px] font-bold leading-tight">Xifeng</div>
               <div className="truncate text-[9px] leading-tight text-muted-foreground">
                 溪风语音输入法 · v{boot.version}
               </div>

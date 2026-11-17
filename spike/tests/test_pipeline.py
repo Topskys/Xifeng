@@ -8,18 +8,18 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from voiceime_spike import asr
-from voiceime_spike.audio import synth_speech_like
-from voiceime_spike.pipeline import Pipeline, PipelineConfig
-from voiceime_spike.trace import Outcome
+from xifeng import asr
+from xifeng.audio import synth_speech_like
+from xifeng.pipeline import Pipeline, PipelineConfig
+from xifeng.trace import Outcome
 
 
 @pytest.fixture(autouse=True)
 def _mock_backend(monkeypatch):  # noqa: ANN001
-    monkeypatch.setenv("VOICEIME_MOCK_TEXT", "呃 今天 我们 嗯 开个会。")
+    monkeypatch.setenv("XIFENG_MOCK_TEXT", "呃 今天 我们 嗯 开个会。")
     asr.load(backend="mock")
     yield
-    monkeypatch.delenv("VOICEIME_MOCK_TEXT", raising=False)
+    monkeypatch.delenv("XIFENG_MOCK_TEXT", raising=False)
 
 
 def _pcm(seconds: float = 1.0) -> np.ndarray:
@@ -36,7 +36,7 @@ def test_clean_text_reaches_postprocess() -> None:
 
 
 def test_hallucination_dropped_not_injected(monkeypatch) -> None:  # noqa: ANN001
-    monkeypatch.setenv("VOICEIME_MOCK_TEXT", "谢谢观看")
+    monkeypatch.setenv("XIFENG_MOCK_TEXT", "谢谢观看")
     pipe = Pipeline(PipelineConfig(do_inject=False))
     r = pipe.process_pcm(_pcm())
     assert r.trace.outcome is Outcome.DROPPED
@@ -51,14 +51,14 @@ def test_empty_audio_dropped() -> None:
 
 def test_short_audio_returns_empty_text_dropped(monkeypatch) -> None:  # noqa: ANN001
     # mock 后端对 <0.3s 返回空串，等价于静音；这里去掉文本覆盖，走真实分支
-    monkeypatch.delenv("VOICEIME_MOCK_TEXT", raising=False)
+    monkeypatch.delenv("XIFENG_MOCK_TEXT", raising=False)
     pipe = Pipeline(PipelineConfig(do_inject=False))
     r = pipe.process_pcm(np.zeros(1600, dtype=np.int16))
     assert r.trace.outcome is Outcome.DROPPED
 
 
 def test_trace_written_when_sink_given(tmp_path) -> None:  # noqa: ANN001
-    from voiceime_spike.trace import TraceSink
+    from xifeng.trace import TraceSink
 
     path = tmp_path / "trace.jsonl"
     pipe = Pipeline(PipelineConfig(do_inject=False), TraceSink(path))
@@ -91,7 +91,7 @@ def test_ids_increase() -> None:
 # ---------------------------------------------------------------- 模型纠错（默认关）
 
 def test_correction_off_by_default(monkeypatch) -> None:  # noqa: ANN001
-    monkeypatch.setenv("VOICEIME_MOCK_TEXT", "用 voice i e 打字")
+    monkeypatch.setenv("XIFENG_MOCK_TEXT", "用 voice i e 打字")
     pipe = Pipeline(PipelineConfig(do_inject=False))
     r = pipe.process_pcm(_pcm())
     assert "voice i e" in r.text
@@ -100,9 +100,9 @@ def test_correction_off_by_default(monkeypatch) -> None:  # noqa: ANN001
 
 
 def test_correction_applied_and_counted(monkeypatch) -> None:  # noqa: ANN001
-    from voiceime_spike import correction
+    from xifeng import correction
 
-    monkeypatch.setenv("VOICEIME_MOCK_TEXT", "这个会议机要发给我")
+    monkeypatch.setenv("XIFENG_MOCK_TEXT", "这个会议机要发给我")
     monkeypatch.setattr(
         correction,
         "correct",
@@ -119,9 +119,9 @@ def test_correction_applied_and_counted(monkeypatch) -> None:  # noqa: ANN001
 
 def test_correction_rejection_keeps_original(monkeypatch) -> None:  # noqa: ANN001
     """守卫拒绝时必须原样注入 —— 宁可漏改，不能把用户说的话改坏（G32）。"""
-    from voiceime_spike import correction
+    from xifeng import correction
 
-    monkeypatch.setenv("VOICEIME_MOCK_TEXT", "帮我把 voice i e 的 read me 提交")
+    monkeypatch.setenv("XIFENG_MOCK_TEXT", "帮我把 voice i e 的 read me 提交")
     monkeypatch.setattr(
         correction,
         "correct",
@@ -160,7 +160,7 @@ def test_trim_can_be_disabled() -> None:
 
 def test_injection_strategy_and_restore_delay_are_passed_through(monkeypatch) -> None:  # noqa: ANN001
     """实际用的策略要写进 Trace —— 否则"这条到底粘的还是打的"没法复盘。"""
-    from voiceime_spike import inject as inject_mod
+    from xifeng import inject as inject_mod
 
     seen = {}
 
@@ -179,7 +179,7 @@ def test_injection_strategy_and_restore_delay_are_passed_through(monkeypatch) ->
 
 
 def test_injection_failure_is_not_reported_as_success(monkeypatch) -> None:  # noqa: ANN001
-    from voiceime_spike import inject as inject_mod
+    from xifeng import inject as inject_mod
 
     monkeypatch.setattr(
         inject_mod,

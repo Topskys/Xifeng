@@ -4,7 +4,7 @@
 这两类都是"有结构的数据"，SQLite 是标准库自带、零依赖、单文件。
 
 隐私边界（AGENTS.md）：
-- 数据库只在本机（`%LOCALAPPDATA%\\VoiceIME\\voiceime.db` 或 `IME_DB`）
+- 数据库只在本机（`%LOCALAPPDATA%\\Xifeng\\xifeng.db` 或 `IME_DB`）
 - **日志**仍然禁止记录识别文本全文；历史表是用户可见数据，可通过 `--no-store-text` 关闭
 - 音频从不落库
 

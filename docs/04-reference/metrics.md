@@ -124,7 +124,7 @@ ASR 原始输出，`--correct` 才把模型纠错计入（与运行时默认一�
 |---|---|---|
 | `这个会议机要发给我` | `这个会议纪要发给我。` | ✅ 采纳（同音字） |
 | `请把 red me 文件发给张三` | `请把 README 文件发给张三` | ✅ 采纳（专有名词） |
-| `帮我把 voice i e 的 read me 提交` | `把VoiceIME的README提交` | ❌ `drop-start`（吞掉"帮我"） |
+| `帮我把 voice i e 的 read me 提交` | `把Xifeng的README提交` | ❌ `drop-start`（吞掉"帮我"） |
 | `今天的会推迟到下午三点` | `今天的会推迟到下午三点二十。` | ❌ `edge-add`（句尾续写） |
 | `这个会议机要发给我` | 原样 / 补句号 | ❌ `same` / `punct-only` |
 
@@ -135,7 +135,7 @@ ASR 原始输出，`--correct` 才把模型纠错计入（与运行时默认一�
 
 | 句 | 参考 → 识别 | 性质 | 处理 |
 |---|---|---|---|
-| 3 | `VoiceIME` → `voice i e`、`README` → `read me` | 中英混排的英文词被拆成音节，属模型能力边界 | 模型纠错（开启时） |
+| 3 | `Xifeng` → `voice i e`、`README` → `read me` | 中英混排的英文词被拆成音节，属模型能力边界 | 模型纠错（开启时） |
 | 5 | `就提交` → `就交就提交` | 复读式重复插入（偶发，每次形态可能不同） | 模型纠错（开启时）；守卫允许 ≤3 字折叠 |
 
 > 采集链路无问题：句1/2/4 在正确配置下 CER = 0，说明音频与麦克风是干净的，
@@ -155,8 +155,8 @@ ASR 原始输出，`--correct` 才把模型纠错计入（与运行时默认一�
 
 | 位置 | 文件 |
 |---|---|
-| spike Trace | `spike/voiceime_spike/trace.py` |
+| spike Trace | `spike/xifeng/trace.py` |
 | spike 质量评估 | `spike/quality_check.py` |
-| 历史 / 统计 | `spike/voiceime_spike/store.py`（`history` 表） |
-| 规则层（已下线） | 原 `spike/voiceime_spike/glossary.py`；现由 `correction.py` 取代 |
+| 历史 / 统计 | `spike/xifeng/store.py`（`history` 表） |
+| 规则层（已下线） | 原 `spike/xifeng/glossary.py`；现由 `correction.py` 取代 |
 | Rust | `crates/ime-core/src/trace.rs`（推迟，见 D6） |

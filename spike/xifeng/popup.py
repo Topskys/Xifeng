@@ -379,7 +379,7 @@ class RecordingPopup:
 
         root = tk.Tk()
         root.withdraw()
-        root.title("VoiceIME")
+        root.title("Xifeng")
         root.overrideredirect(True)
         root.attributes("-topmost", True)
         try:

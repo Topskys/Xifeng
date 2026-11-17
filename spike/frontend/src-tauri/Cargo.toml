@@ -1,7 +1,7 @@
 [package]
-name = "voiceime-tauri"
+name = "xifeng"
 version = "0.1.0"
-description = "VoiceIME 桌面壳：Tauri 窗口 + Python 核心子进程"
+description = "Xifeng 桌面壳：Tauri 窗口 + Python 核心子进程"
 edition = "2021"
 rust-version = "1.77"
 

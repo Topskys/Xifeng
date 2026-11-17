@@ -59,7 +59,7 @@
 
 Rust 壳接管热键/采集/注入后（决策 D16，docs/00-process/plan.md），
 Python 核心退化为模型运行时。它们**不经过 `webgui.Api`**，
-由 `voiceime_spike/asr_runtime.py` 的 `AsrRuntime` 实现；模型延迟加载 + 常驻，
+由 `xifeng/asr_runtime.py` 的 `AsrRuntime` 实现；模型延迟加载 + 常驻，
 `ready` 之后由后台线程 warmup（绝不阻塞 ready 与协议主循环），
 首次 `asr_begin` 一般不再等 2~4s 冷启动。
 

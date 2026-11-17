@@ -17,7 +17,7 @@ const badgeVariants = cva(
           "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary underline-offset-4 [a&]:hover:underline",
-        /* VoiceIME 扩展：次要信息 / 成功态（与 shadcn 令牌一致） */
+        /* Xifeng 扩展：次要信息 / 成功态（与 shadcn 令牌一致） */
         muted: "border-transparent bg-secondary text-muted-foreground",
         success: "border-transparent bg-success text-white",
         "outline-success": "border-success/50 text-success",

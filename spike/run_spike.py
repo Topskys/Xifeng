@@ -19,18 +19,18 @@ from pathlib import Path
 
 import numpy as np
 
-from voiceime_spike import (
-    applog, asr, audio, autostart, correction, hotkey, inject as inject_mod, postprocess,
-    popup as popup_mod, winenv,
+from xifeng import (
+    applog, asr, audio, autostart, correction, hotkey, inject as inject_mod, paths,
+    postprocess, popup as popup_mod, winenv,
 )
-from voiceime_spike import settings as user_settings
-from voiceime_spike.pipeline import Pipeline, PipelineConfig, record_interactive, record_seconds
-from voiceime_spike.store import Store, describe as describe_db
-from voiceime_spike.trace import TraceSink
+from xifeng import settings as user_settings
+from xifeng.pipeline import Pipeline, PipelineConfig, record_interactive, record_seconds
+from xifeng.store import Store, describe as describe_db
+from xifeng.trace import TraceSink
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="VoiceIME M0 spike —— 跑通一次语音输入")
+    p = argparse.ArgumentParser(description="Xifeng M0 spike —— 跑通一次语音输入")
     src = p.add_mutually_exclusive_group()
     p.add_argument("--text", help="跳过 ASR，直接用这段文本走清理+注入（调试用）")
     src.add_argument("--wav", help="从 wav 文件读取音频（16-bit）")
@@ -92,7 +92,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--speak-result", action="store_true", help="把清理后的文本打到 stdout")
 
     # --- SQLite：历史 / 统计
-    p.add_argument("--db", default=None, help="数据库路径（默认 IME_DB 或 %%LOCALAPPDATA%%\\VoiceIME\\voiceime.db）")
+    p.add_argument("--db", default=None, help="数据库路径（默认 IME_DB 或 %%LOCALAPPDATA%%\\Xifeng\\xifeng.db）")
     p.add_argument("--no-db", action="store_true", help="不打开数据库（不记历史）")
     p.add_argument("--no-store-text", action="store_true", help="历史只记长度，不落识别文本")
     p.add_argument("--history", type=int, nargs="?", const=20, default=None, metavar="N",
@@ -181,7 +181,7 @@ def ipc_mode(args: argparse.Namespace, argv: list[str] | None = None) -> int:
     `sys.stdout` 换到 stderr，这样 `Store` 的 WAL 警告、任何遗留 `print`
     都不会污染协议；原始 stdout 只交给 `ipc.serve` 写响应。
     """
-    from voiceime_spike import ipc
+    from xifeng import ipc
 
     proto_out = sys.stdout
     # 协议要求 UTF-8：stdin 由 ipc.serve 改；stderr 是 Tauri 侧的日志管道，
@@ -200,7 +200,7 @@ def ipc_mode(args: argparse.Namespace, argv: list[str] | None = None) -> int:
         # D16 运行时：Rust 壳经 asr_begin/feed/end/cancel 驱动推理；
         # 裁剪语义与 ptt_loop 一致（--trim/--vad，命令行与用户设置已在此合流），
         # 后处理/注入不在这里做（Rust 壳负责）。ready 后后台线程 warmup。
-        from voiceime_spike.asr_runtime import AsrRuntime
+        from xifeng.asr_runtime import AsrRuntime
 
         runtime = AsrRuntime(
             backend=args.backend,
@@ -283,14 +283,14 @@ def tray_mode(
 
     控制台在 `main()` 里就已经藏好、日志也已重定向，这里只管托盘与循环。
     """
-    from voiceime_spike import tray as tray_mod
+    from xifeng import tray as tray_mod
 
     stop = threading.Event()
     tray = tray_mod.Tray(on_quit=stop.set)
     try:
         tray.start()
         print("[tray] 已启动：托盘图标右键 → 显示主界面 / 退出", flush=True)
-        tray.notify("VoiceIME", "已在后台运行：按住 Ctrl 说话，松开输入")
+        tray.notify("Xifeng", "已在后台运行：按住 Ctrl 说话，松开输入")
         args.times = 0
         return ptt_loop(pipe, args, store, sample_rate, should_stop=stop.is_set)
     finally:
@@ -494,6 +494,36 @@ def main(argv: list[str] | None = None) -> int:
     applog.tame_console()
     args = parse_args(argv)
 
+    if args.ipc:
+        # sidecar 的 stderr 是壳的日志管道，壳按 UTF-8 逐行读（非 UTF-8 直接断流）。
+        # Windows 默认 gbk，而迁移日志发生在 ipc_mode() 之前，所以这里提前钉死编码。
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - 不是 TextIOWrapper 就保持原样
+            pass
+
+    # 改名迁移（D21）：必须在任何 Store/GUI 读路径之前跑，幂等且失败不拦启动。
+    # - `IME_DATA_DIR` 显式指定时函数内部直接跳过（用户已接管数据位置）
+    # - `--db`/`--no-db` 是显式指定库：不去动默认目录（测试也靠这条隔离真实数据）
+    if args.db is None and not args.no_db:
+        migrated = paths.migrate_legacy_data()
+        if migrated:
+            print(
+                f"[paths] 已迁移旧版数据 → {paths.data_dir()}（{', '.join(migrated)}）",
+                file=sys.stderr,
+                flush=True,
+            )
+    # 自启值迁移只在 Python 托盘模式需要；Tauri 壳自己迁（autostart.rs），
+    # IPC/sidecar 进程不该碰注册表。
+    if args.tray:
+        legacy_autostart = autostart.migrate_legacy()
+        if legacy_autostart:
+            print(
+                f"[autostart] 已迁移旧版自启项（旧值：{legacy_autostart}）",
+                file=sys.stderr,
+                flush=True,
+            )
+
     # 诊断模式不需要模型，也不录音
     if args.diagnose_keys is not None:
         hotkey.watch_keys(float(args.diagnose_keys))
@@ -504,7 +534,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # GUI 是独立进程：不加载模型、不装钩子、不开麦克风
     if args.gui:
-        from voiceime_spike import gui
+        from xifeng import gui
         return gui.run(args.db, args.tab)
 
     # IPC：Tauri 壳拉起的纯协议进程，不开 HTTP、不启托盘（契约见 ipc-contract.md）
@@ -512,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
         return ipc_mode(args, argv)
 
     if args.web:
-        from voiceime_spike import webgui
+        from xifeng import webgui
         return webgui.run(args.db, args.tab)
 
     tray_log: tuple[object, object, object | None] | None = None
@@ -520,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
         args.ptt = True
         if args.times is None:      # 没显式指定时托盘应一直等
             args.times = 0
-        from voiceime_spike import tray as tray_mod
+        from xifeng import tray as tray_mod
         tray_log = (sys.stdout, sys.stderr, applog.setup(force_file=True))
         tray_mod.hide_console()     # 先隐藏再加载模型，开机自启不会闪一下黑窗
         if not tray_mod.acquire_single_instance():

@@ -205,14 +205,19 @@ impl PythonBridge {
 
         let python = python_exe();
         let dir = core_dir();
-        let db = env::var("VOICEIME_DB").ok().filter(|s| !s.trim().is_empty());
+        let db = env_compat("XIFENG_DB", "VOICEIME_DB")
+            .and_then(|v| v.into_string().ok())
+            .filter(|s| !s.trim().is_empty());
 
         // sidecar（PyInstaller 产物）自己就是入口，不能再传脚本名；
-        // 解释器模式才需要 `run_spike.py`。
+        // 解释器模式才需要 `run_spike.py`。旧名 exe 也认（开发期手头可能有旧产物）。
         let is_sidecar = Path::new(&python)
             .file_name()
             .and_then(|n| n.to_str())
-            .is_some_and(|n| n.eq_ignore_ascii_case("VoiceIME-Core.exe"));
+            .is_some_and(|n| {
+                n.eq_ignore_ascii_case("Xifeng-Core.exe")
+                    || n.eq_ignore_ascii_case("VoiceIME-Core.exe")
+            });
 
         let mut cmd = Command::new(&python);
         if !is_sidecar {
@@ -295,7 +300,7 @@ impl PythonBridge {
             Status::Starting => {
                 drop(guard);
                 let msg = format!(
-                    "等 Python 核 ready 超时（{}s），请检查 VOICEIME_PYTHON 与 run_spike.py --ipc",
+                    "等 Python 核 ready 超时（{}s），请检查 XIFENG_PYTHON 与 run_spike.py --ipc",
                     READY_TIMEOUT.as_secs()
                 );
                 eprintln!("[shell] {msg}");
@@ -543,30 +548,38 @@ fn spawn_stderr_reader(stderr: ChildStderr) {
         .expect("无法创建 py-stderr 线程");
 }
 
+/// 读环境变量：新名优先，旧名（VoiceIME 时代）仍认——开发脚本/快捷方式
+/// 里残留的旧变量不该让应用突然找不到 Python 核（D21）。
+fn env_compat(name: &str, legacy: &str) -> Option<OsString> {
+    env::var_os(name)
+        .filter(|v| !v.is_empty())
+        .or_else(|| env::var_os(legacy).filter(|v| !v.is_empty()))
+}
+
 /// Python 解释器路径。
 ///
 /// 解析顺序：
-/// 1. `VOICEIME_PYTHON` 环境变量（开发时指 venv 的解释器）
-/// 2. 打包态的 sidecar：`<exe 同级>/core/VoiceIME-Core.exe`（`packaging/build_core.py` 产出，
+/// 1. `XIFENG_PYTHON` 环境变量（开发时指 venv 的解释器；旧名 `VOICEIME_PYTHON` 兼容）
+/// 2. 打包态的 sidecar：`<exe 同级>/core/Xifeng-Core.exe`（`packaging/build_core.py` 产出，
 ///    自带解释器与全部依赖，不需要用户机器上装 Python）
 /// 3. 兜底 `python`（依赖 PATH，仅供开发/排障）
 fn python_exe() -> OsString {
-    if let Some(v) = env::var_os("VOICEIME_PYTHON").filter(|v| !v.is_empty()) {
+    if let Some(v) = env_compat("XIFENG_PYTHON", "VOICEIME_PYTHON") {
         return v;
     }
     if let Ok(exe) = env::current_exe() {
         if let Some(dir) = exe.parent() {
             // Tauri 的 resources 在 Windows 上落在 exe 同级（安装目录）。
-            // onedir 结构是 `core/VoiceIME-Core/VoiceIME-Core.exe`（PyInstaller 的
+            // onedir 结构是 `core/Xifeng-Core/Xifeng-Core.exe`（PyInstaller 的
             // app 目录 + `_internal`），平铺候选只是历史兼容，别删。
             for cand in [
-                dir.join("core").join("VoiceIME-Core").join("VoiceIME-Core.exe"),
-                dir.join("core").join("VoiceIME-Core.exe"),
-                dir.join("resources").join("core").join("VoiceIME-Core.exe"),
+                dir.join("core").join("Xifeng-Core").join("Xifeng-Core.exe"),
+                dir.join("core").join("Xifeng-Core.exe"),
+                dir.join("resources").join("core").join("Xifeng-Core.exe"),
                 dir.join("resources")
                     .join("core")
-                    .join("VoiceIME-Core")
-                    .join("VoiceIME-Core.exe"),
+                    .join("Xifeng-Core")
+                    .join("Xifeng-Core.exe"),
             ] {
                 if cand.is_file() {
                     return cand.into_os_string();
@@ -579,14 +592,12 @@ fn python_exe() -> OsString {
 
 /// Python 核心所在目录（`run_spike.py` 的父目录）。
 ///
-/// 优先 `VOICEIME_CORE_DIR`；打包态找 exe 同级 `python/`；开发态从
+/// 优先 `XIFENG_CORE_DIR`；打包态找 exe 同级 `python/`；开发态从
 /// `CARGO_MANIFEST_DIR` 往上找第一个含 `run_spike.py` 的目录——这样壳放在
 /// `spike/src-tauri` 还是 `spike/frontend/src-tauri` 都不用改代码。
 fn core_dir() -> PathBuf {
-    if let Some(dir) = env::var_os("VOICEIME_CORE_DIR") {
-        if !dir.is_empty() {
-            return PathBuf::from(dir);
-        }
+    if let Some(dir) = env_compat("XIFENG_CORE_DIR", "VOICEIME_CORE_DIR") {
+        return PathBuf::from(dir);
     }
 
     if let Ok(exe) = env::current_exe() {
@@ -594,9 +605,9 @@ fn core_dir() -> PathBuf {
             let candidates = [
                 dir.join("python"),
                 dir.join("resources").join("python"),
-                // sidecar 的 onedir：`core/VoiceIME-Core/`（build_core.py 把
+                // sidecar 的 onedir：`core/Xifeng-Core/`（build_core.py 把
                 // run_spike.py 判据放这里）
-                dir.join("core").join("VoiceIME-Core"),
+                dir.join("core").join("Xifeng-Core"),
                 dir.to_path_buf(),
             ];
             for cand in candidates {

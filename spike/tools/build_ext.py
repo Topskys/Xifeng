@@ -2,7 +2,7 @@
 
 为什么不直接用 `maturin develop`：本机（沙箱环境）里 maturin 的 `tempfile` 建临时目录
 会被拒（`os error 5`），而 `cargo build` 本身正常。这里做的是同一件事——
-`cargo build` 出 `cdylib`，再把 `voiceime_rs.dll` 改名成 `.pyd` 放到 site-packages。
+`cargo build` 出 `cdylib`，再把 `xifeng_rs.dll` 改名成 `.pyd` 放到 site-packages。
 maturin 仍留在 dev 依赖里，供无此限制的机器 / CI 打包 wheel。
 
 用法：
@@ -22,7 +22,7 @@ import sysconfig
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]  # 仓库根目录
 MANIFEST = ROOT / "crates" / "ime-py" / "Cargo.toml"
-MODULE = "voiceime_rs"
+MODULE = "xifeng_rs"
 
 # cargo 不一定在 PATH 里（本机装在 D:\env\rust，见 docs/02-guides/rust-env.md），
 # 所以显式找几个常见位置，避免"明明装了却报 WinError 2"。

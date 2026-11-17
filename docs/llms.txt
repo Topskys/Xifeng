@@ -1,4 +1,4 @@
-# VoiceIME
+# Xifeng
 
 > 本地语音输入法。Python 主流程（sounddevice + ctypes Win32） + SenseVoice ASR，
 > PyInstaller 打包交付；Rust 版推迟（`00-process/plan.md` D6）。
@@ -45,7 +45,7 @@
 - `05-gotchas`：已知坑位与对策（改相关模块前必读；G23 按需开麦、G31 Web GUI、G32 模型纠错、G33 冻结包 CRT、G34 浮窗毛玻璃）
 
 > 未落地：`03-core-concepts/{vad,correction}`、`04-reference/{config,ipc-protocol}`。
-> 纠错实现以 `spike/voiceime_spike/correction.py` 与 `05-gotchas.md` G32 为准。
+> 纠错实现以 `spike/xifeng/correction.py` 与 `05-gotchas.md` G32 为准。
 
 ## 原始素材
 

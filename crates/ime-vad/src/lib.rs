@@ -1,6 +1,6 @@
 //! 语音活动检测：能量法切分、Silero 概率双阈值滞回、首尾静音裁剪。
 //!
-//! 与 `spike/voiceime_spike/vad.py` 逐字节等价，由
+//! 与 `spike/xifeng/vad.py` 逐字节等价，由
 //! `spike/tests/test_vad_parity.py` 校验。
 //!
 //! 只搬纯计算部分：Silero 模型前向仍留在 Python（sherpa-onnx），

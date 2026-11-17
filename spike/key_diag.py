@@ -41,7 +41,7 @@ import threading
 import time
 from ctypes import wintypes
 
-from voiceime_spike import winenv
+from xifeng import winenv
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -343,7 +343,7 @@ def tk_probe(seconds: float, emit=print) -> tuple[list[str], bool]:
     fg_box = {"v": False}
 
     root = tk.Tk()
-    root.title("VoiceIME 按键诊断")
+    root.title("Xifeng 按键诊断")
     root.geometry("460x170+120+120")
     root.attributes("-topmost", True)
     label = tk.Label(

@@ -88,8 +88,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--size", default="", help="如 1000x660；默认 1180x760")
     args = p.parse_args(argv)
 
-    from voiceime_spike import gui, paths, ui
-    from voiceime_spike import settings as user_settings
+    from xifeng import gui, paths, ui
+    from xifeng import settings as user_settings
 
     # 临时产物一律进 <仓库根>/temp/
     out = Path(args.out) if args.out else \

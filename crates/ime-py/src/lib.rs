@@ -1,7 +1,7 @@
-//! VoiceIME 的 PyO3 扩展模块 `voiceime_rs`。
+//! Xifeng 的 PyO3 扩展模块 `xifeng_rs`。
 //!
 //! 只做「Python 签名 ↔ Rust 实现」的转接，规则本身在 `ime-post`。
-//! 参数命名与 `spike/voiceime_spike/postprocess.py` 的 `PostConfig` 字段一一对应，
+//! 参数命名与 `spike/xifeng/postprocess.py` 的 `PostConfig` 字段一一对应，
 //! 这样 Python 侧不必维护两套配置结构。
 
 use std::collections::HashMap;
@@ -253,7 +253,7 @@ fn vad_trim(
 }
 
 #[pymodule]
-fn voiceime_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn xifeng_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_function(wrap_pyfunction!(process, m)?)?;
     m.add_function(wrap_pyfunction!(filter_hallucination, m)?)?;

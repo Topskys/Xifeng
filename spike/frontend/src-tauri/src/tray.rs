@@ -30,9 +30,9 @@ pub fn install(app: &AppHandle) -> Result<(), String> {
         .cloned()
         .ok_or("缺少窗口图标（bundle 配置）")?;
 
-    let tray = TrayIconBuilder::with_id("voiceime")
+    let tray = TrayIconBuilder::with_id("xifeng")
         .icon(icon)
-        .tooltip("VoiceIME · 双击 Ctrl 说话")
+        .tooltip("Xifeng · 按住 Ctrl 说话")
         .menu(&menu)
         .show_menu_on_left_click(false) // 左键单击 = 显示主界面（同 Python 版 default 行为）
         .on_menu_event(|app, event| match event.id.as_ref() {

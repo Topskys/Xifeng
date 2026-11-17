@@ -17,10 +17,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from voiceime_spike import asr, correction, ipc, vad
-from voiceime_spike.asr import AsrError
-from voiceime_spike.asr_runtime import AsrRuntime
-from voiceime_spike.store import Store
+from xifeng import asr, correction, ipc, vad
+from xifeng.asr import AsrError
+from xifeng.asr_runtime import AsrRuntime
+from xifeng.store import Store
 
 SPIKE_DIR = Path(__file__).resolve().parents[1]
 
@@ -170,7 +170,7 @@ def test_feed_over_limit_drops_new_data(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """缓冲超过上限：丢弃新数据、累计帧数不变，只警告一次。"""
-    from voiceime_spike import asr_runtime
+    from xifeng import asr_runtime
 
     monkeypatch.setattr(asr_runtime, "MAX_FRAMES", 1000)
     rt = AsrRuntime(autostart_warmup=False)
@@ -335,7 +335,7 @@ def test_correct_applied_returns_fixed_text(
     store: Store, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
 ) -> None:
     """守卫放行：applied=true + 修正文本 + fixes；日志只记长度，不落文本。"""
-    from voiceime_spike.correction import CorrectionResult
+    from xifeng.correction import CorrectionResult
 
     monkeypatch.setattr(correction, "load", lambda **_kw: True)
     monkeypatch.setattr(correction, "warmup", lambda: 3)

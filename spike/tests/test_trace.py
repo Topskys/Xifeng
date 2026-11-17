@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from voiceime_spike.trace import Outcome, Trace, TraceSink, percentiles
+from xifeng.trace import Outcome, Trace, TraceSink, percentiles
 
 
 def test_trace_has_stage_timings_and_no_text() -> None:

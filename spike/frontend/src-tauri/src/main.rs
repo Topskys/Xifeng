@@ -1,4 +1,4 @@
-//! VoiceIME 桌面壳：Tauri 窗口 + 热键/采集/注入（D16）+ Python 模型运行时。
+//! Xifeng 桌面壳：Tauri 窗口 + 热键/采集/注入（D16）+ Python 模型运行时。
 //!
 //! 职责边界（D16 迁移后）：
 //! - 壳（Rust）：热键钩子、cpal 采集、ime-post 后处理、SendInput 注入、
@@ -173,7 +173,7 @@ fn build_overlay(app: &tauri::AppHandle) -> Result<(), String> {
         "overlay",
         WebviewUrl::App("index.html?window=overlay".into()),
     )
-    .title("VoiceIME 录音")
+    .title("Xifeng 录音")
     .decorations(false)
     .transparent(true)
     .shadow(false)
@@ -194,7 +194,7 @@ fn build_overlay(app: &tauri::AppHandle) -> Result<(), String> {
 
 fn main() {
     // WebView2 数据目录 = exe 同级 EBWebView（便携：数据跟程序走）。
-    // MUST 显式设置：默认目录（%LOCALAPPDATA%\com.voiceime.app）在本机被
+    // MUST 显式设置：默认目录（%LOCALAPPDATA%\com.xifeng.app）在本机被
     // 系统 webview 实例抢锁，创建报 0x800700AA（资源占用）；实测
     // AppData\Local 全部路径均失败、exe 同级成功（实验 A-D，2026-11-14）。
     let ud = std::env::current_exe()

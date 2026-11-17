@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "VoiceIME 文本后处理：ASR 输出到注入之间的清理与归一化（Python 侧 postprocess.py 的等价实现）"
+description = "Xifeng 文本后处理：ASR 输出到注入之间的清理与归一化（Python 侧 postprocess.py 的等价实现）"
 
 [dependencies]
 regex.workspace = true

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from voiceime_spike.benv import EnvReport
+from xifeng.benv import EnvReport
 
 
 def _env(cpu: float | None, free_mb: int | None = 8000, total_mb: int | None = 16000,

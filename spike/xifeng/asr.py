@@ -11,12 +11,11 @@
 
 from __future__ import annotations
 
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import paths
+from . import envs, paths
 
 
 class AsrError(RuntimeError):
@@ -34,11 +33,11 @@ class _State:
 
 _state = _State()
 
-MOCK_TEXT_ENV = "VOICEIME_MOCK_TEXT"
+MOCK_TEXT_ENV = "XIFENG_MOCK_TEXT"
 
 
 def _mock_text(pcm: bytes, sample_rate: int) -> str:
-    override = os.environ.get(MOCK_TEXT_ENV)
+    override = envs.get("MOCK_TEXT")
     if override is not None:
         return override
     seconds = len(pcm) / 2 / max(1, sample_rate)

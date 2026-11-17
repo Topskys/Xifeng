@@ -1,8 +1,8 @@
 """按窗口标题截图（Win32 PrintWindow，不依赖屏幕是否可见）。
 
 用法：
-    uv run python tools/shot.py --title VoiceIME --out ../.shots/tauri.png
-    uv run python tools/shot.py --title VoiceIME --out ../.shots/x.png --wait 30
+    uv run python tools/shot.py --title Xifeng --out ../.shots/tauri.png
+    uv run python tools/shot.py --title Xifeng --out ../.shots/x.png --wait 30
 
 为什么用 PrintWindow 而不是抓屏：本机是远程/无人值守环境，窗口可能被遮挡或不在
 前台；PrintWindow 让窗口自己重绘到位图里，结果稳定。
@@ -130,7 +130,7 @@ def capture(hwnd: int, out: Path, settle: float = 2.0) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--title", default="VoiceIME")
+    ap.add_argument("--title", default="Xifeng")
     ap.add_argument("--out", required=True)
     ap.add_argument("--wait", type=float, default=40.0, help="等窗口出现的秒数")
     ap.add_argument("--settle", type=float, default=3.0, help="等页面渲染的秒数")

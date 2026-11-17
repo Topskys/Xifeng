@@ -13,7 +13,7 @@ import random
 
 import pytest
 
-from voiceime_spike import postprocess as pp
+from xifeng import postprocess as pp
 
 pytestmark = pytest.mark.skipif(
     pp._rs_process is None,

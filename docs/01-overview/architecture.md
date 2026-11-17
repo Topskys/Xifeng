@@ -1,14 +1,14 @@
 # 架构与进程模型
 
-本文件描述 VoiceIME 的进程划分、模块归属与技术选型理由。变更架构前 MUST 先读本文件并同步更新。
+本文件描述 Xifeng 的进程划分、模块归属与技术选型理由。变更架构前 MUST 先读本文件并同步更新。
 
 > **2026-10-29 决策（D6）**：交付形态改为 **Python 单进程 + PyInstaller**，Rust 版推迟。
-> 下文的 Rust 目标态保留为"后续可选"，当前实现见 `spike/voiceime_spike/`：
+> 下文的 Rust 目标态保留为"后续可选"，当前实现见 `spike/xifeng/`：
 > `hotkey → LiveMic → asr(sherpa) → post → inject`，模块边界与下表一一对应。
 >
 > **2026-11-09 修订（D13）**：Rust **以 PyO3 扩展参与**，Python 仍是主流程。
-> 已落地部分是后处理：`crates/ime-post`（规则，纯 Rust）→ `crates/ime-py`（`voiceime_rs.pyd`，
-> abi3-py311）。Python 侧 `voiceime_spike/postprocess.py` 保留纯 Python 基准实现，
+> 已落地部分是后处理：`crates/ime-post`（规则，纯 Rust）→ `crates/ime-py`（`xifeng_rs.pyd`，
+> abi3-py311）。Python 侧 `xifeng/postprocess.py` 保留纯 Python 基准实现，
 > 默认自动走 Rust；`cargo test -p ime-post` 与 `tests/test_postprocess_parity.py` 两侧都校验。
 > 热键钩子 / 音频环 / VAD / 注入属于第 2 阶段。
 
@@ -19,9 +19,9 @@
 | `ime-service` | Rust (tokio) | 热键、音频采集、VAD、PyO3 推理、后处理、注入、模型管理、IPC 服务端 | 自动重启 1 次/分钟；状态从磁盘恢复 |
 | `ime-gui` | Tauri 2 | 统计 / 模型 / 配置 / 历史 / 关于 五页 + IPC 客户端 | 独立崩溃不影响输入功能 |
 
-两进程 MUST NOT 共享内存以外的状态；一切交互走 JSON-RPC over Named Pipe `\\.\pipe\voiceime`。
+两进程 MUST NOT 共享内存以外的状态；一切交互走 JSON-RPC over Named Pipe `\\.\pipe\xifeng`。
 
-> **当前 Python 形态（D6/D7）**：一个 `VoiceIME.exe` 同时承担 service + tray，
+> **当前 Python 形态（D6/D7）**：一个 `Xifeng.exe` 同时承担 service + tray，
 > `--tray` 时隐藏控制台并常驻；主界面用 `--web` **另起一个进程**（本地 HTTP + Edge 应用窗口，
 > `spike/frontend` 的 React 五页），共享同一个 SQLite 文件而不是 Named Pipe。
 > Web 崩了不影响输入，PTT 退出也不影响看历史。
@@ -48,19 +48,19 @@
 
 | 文档里的概念 | 实际文件 | 说明 |
 |---|---|---|
-| `ime-hotkey` | `voiceime_spike/hotkey.py` | `WH_KEYBOARD_LL` + 轮询兜底 + 按需开麦（G23） |
-| `ime-audio` | `voiceime_spike/audio.py` + `hotkey.LiveMic` | sounddevice 16k i16，按下才开流、回调只入队 |
-| `ime-infer` | `voiceime_spike/asr.py` | sherpa-onnx / SenseVoice；独立线程推理 |
-| `ime-post` | `voiceime_spike/postprocess.py` | 幻觉/语气词/归一化 |
-| `ime-correct`（Python 版） | `voiceime_spike/correction.py` | 本地 Qwen2.5-0.5B + 守卫（默认关，G32） |
-| `ime-inject` | `voiceime_spike/inject.py` | 焦点快照 + SendInput(UNICODE) + 剪贴板兜底（`auto`） |
-| Trace | `voiceime_spike/trace.py` | JSONL + 分位数 |
-| 存储（原 M3） | `voiceime_spike/store.py` | SQLite：历史/统计/设置 |
-| 路径解析 | `voiceime_spike/paths.py` | 源码/冻结两套（G24/G25） |
-| 托盘 / 自启 | `voiceime_spike/{tray,autostart}.py` | pystray 菜单、命名 Mutex、`HKCU\...\Run` |
-| GUI（M3） | `spike/frontend` + `voiceime_spike/webgui.py` | React + shadcn 五页；`127.0.0.1:8642` + Edge `--app`（G31） |
-| 旧 GUI（兜底） | `voiceime_spike/gui.py` | tkinter 四页，`--gui` 仍可用 |
-| 应用日志 | `voiceime_spike/applog.py` | `--tray` 隐藏控制台后的 stdout/stderr（UTF-8 文件） |
+| `ime-hotkey` | `xifeng/hotkey.py` | `WH_KEYBOARD_LL` + 轮询兜底 + 按需开麦（G23） |
+| `ime-audio` | `xifeng/audio.py` + `hotkey.LiveMic` | sounddevice 16k i16，按下才开流、回调只入队 |
+| `ime-infer` | `xifeng/asr.py` | sherpa-onnx / SenseVoice；独立线程推理 |
+| `ime-post` | `xifeng/postprocess.py` | 幻觉/语气词/归一化 |
+| `ime-correct`（Python 版） | `xifeng/correction.py` | 本地 Qwen2.5-0.5B + 守卫（默认关，G32） |
+| `ime-inject` | `xifeng/inject.py` | 焦点快照 + SendInput(UNICODE) + 剪贴板兜底（`auto`） |
+| Trace | `xifeng/trace.py` | JSONL + 分位数 |
+| 存储（原 M3） | `xifeng/store.py` | SQLite：历史/统计/设置 |
+| 路径解析 | `xifeng/paths.py` | 源码/冻结两套（G24/G25） |
+| 托盘 / 自启 | `xifeng/{tray,autostart}.py` | pystray 菜单、命名 Mutex、`HKCU\...\Run` |
+| GUI（M3） | `spike/frontend` + `xifeng/webgui.py` | React + shadcn 五页；`127.0.0.1:8642` + Edge `--app`（G31） |
+| 旧 GUI（兜底） | `xifeng/gui.py` | tkinter 四页，`--gui` 仍可用 |
+| 应用日志 | `xifeng/applog.py` | `--tray` 隐藏控制台后的 stdout/stderr（UTF-8 文件） |
 | `ime-service` 骨架 | `run_spike.py` + `pipeline.py` | 状态机、Trace、CLI、`--tray` 常驻 |
 
 ## 线程模型

@@ -9,7 +9,7 @@ import pytest
 
 tk = pytest.importorskip("tkinter")
 
-from voiceime_spike import ui
+from xifeng import ui
 
 
 @pytest.fixture(scope="module")

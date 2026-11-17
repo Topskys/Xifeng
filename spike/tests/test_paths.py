@@ -1,7 +1,8 @@
-"""路径解析单测：统一根（D14）与旧布局兼容各自指向正确位置。
+"""路径解析单测：统一根（D14）、旧布局兼容、以及改名迁移（D21）。
 
-模型统一根（2026-11-11）：`%LOCALAPPDATA%\VoiceIME\models`，仓库里不再放模型；
+模型统一根（2026-11-11）：`%LOCALAPPDATA%\Xifeng\models`，仓库里不再放模型；
 旧位置（exe 同级 / 仓库根）只在**已有模型**时作为兼容兜底。
+改名（2026-11-16）：旧 `%LOCALAPPDATA%\VoiceIME` 由入口显式迁移。
 """
 
 from __future__ import annotations
@@ -9,13 +10,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from voiceime_spike import paths
+from xifeng import paths
 
 
 def _freeze(monkeypatch, exe_dir: Path) -> None:
-    """把当前进程伪装成 `<exe_dir>/VoiceIME.exe` 的冻结形态。"""
+    """把当前进程伪装成 `<exe_dir>/Xifeng.exe` 的冻结形态。"""
     exe_dir.mkdir(parents=True, exist_ok=True)
-    exe = exe_dir / "VoiceIME.exe"
+    exe = exe_dir / "Xifeng.exe"
     exe.write_bytes(b"")
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(exe))
@@ -31,7 +32,7 @@ def test_models_root_env_wins(monkeypatch, tmp_path: Path) -> None:
 def test_models_root_is_localappdata_when_it_has_models(monkeypatch, tmp_path: Path) -> None:
     """统一位置有模型就用它——只读探测，Low 进程（沙箱调试）也能用。"""
     local = tmp_path / "local"
-    root = local / "VoiceIME" / "models"
+    root = local / "Xifeng" / "models"
     (root / "asr" / "sensevoice-small-int8").mkdir(parents=True)
     monkeypatch.setenv("LOCALAPPDATA", str(local))
     monkeypatch.delenv("IME_MODELS_ROOT", raising=False)
@@ -49,14 +50,14 @@ def test_models_root_falls_back_to_data_dir(monkeypatch, tmp_path: Path) -> None
 def test_has_models_accepts_llm_and_vad_too(monkeypatch, tmp_path: Path) -> None:
     """只放了纠错或 VAD 也算「统一根已有模型」（三类任意一类即可）。"""
     monkeypatch.delenv("IME_MODELS_ROOT", raising=False)
-    root = tmp_path / "VoiceIME" / "models"
+    root = tmp_path / "Xifeng" / "models"
     (root / "llm").mkdir(parents=True)
     (root / "llm" / "q.gguf").write_bytes(b"x")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     assert paths.models_root() == root
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "other"))
-    root2 = tmp_path / "other" / "VoiceIME" / "models"
+    root2 = tmp_path / "other" / "Xifeng" / "models"
     (root2 / "vad").mkdir(parents=True)
     (root2 / "vad" / "silero_vad.onnx").write_bytes(b"x")
     assert paths.models_root() == root2
@@ -154,8 +155,8 @@ def test_data_dir_prefers_localappdata(monkeypatch, tmp_path: Path) -> None:
     """安装到 Program Files 时 exe 同级不可写，用户数据必须落 %LOCALAPPDATA%。"""
     monkeypatch.delenv("IME_DATA_DIR", raising=False)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
-    assert paths.data_dir() == tmp_path / "local" / "VoiceIME"
-    assert paths.db_path().name == "voiceime.db"
+    assert paths.data_dir() == tmp_path / "local" / "Xifeng"
+    assert paths.db_path() == tmp_path / "local" / "Xifeng" / "xifeng.db"
 
 
 def test_data_dir_falls_back_next_to_exe_when_frozen(monkeypatch, tmp_path: Path) -> None:
@@ -174,3 +175,91 @@ def test_data_dir_falls_back_inside_spike_when_not_frozen(monkeypatch, tmp_path:
     monkeypatch.setattr(paths, "_usable", lambda _d: False)
     monkeypatch.delattr(sys, "frozen", raising=False)
     assert paths.data_dir() == paths.app_dir() / ".data"
+
+
+# ---------------------------------------------------------------- 改名迁移（D21）
+
+def test_migrate_renames_dir_db_and_log(monkeypatch, tmp_path: Path) -> None:
+    """旧目录整目录接管：rename 瞬时，库/日志改名，模型不用重下。"""
+    monkeypatch.delenv("IME_DATA_DIR", raising=False)
+    local = tmp_path / "local"
+    old = local / "VoiceIME"
+    (old / "models" / "asr" / "sensevoice-small-int8").mkdir(parents=True)
+    (old / paths.LEGACY_DB_NAME).write_bytes(b"history")
+    (old / paths.LEGACY_LOG_NAME).write_text("log", encoding="utf-8")
+
+    actions = paths.migrate_legacy_data(local)
+
+    new = local / "Xifeng"
+    assert "renamed" in actions
+    assert new.is_dir() and not old.exists()
+    assert (new / "xifeng.db").read_bytes() == b"history"
+    assert not (new / "voiceime.db").exists()
+    assert (new / "xifeng.log").read_text(encoding="utf-8") == "log"
+    assert (new / "models" / "asr" / "sensevoice-small-int8").is_dir()
+
+
+def test_migrate_replaces_empty_target_then_renames(monkeypatch, tmp_path: Path) -> None:
+    """data_dir() 可能先建出空的新目录；迁移应删空壳后仍走 rename。"""
+    monkeypatch.delenv("IME_DATA_DIR", raising=False)
+    local = tmp_path / "local"
+    old = local / "VoiceIME"
+    old.mkdir(parents=True)
+    (old / paths.LEGACY_DB_NAME).write_bytes(b"x")
+    (local / "Xifeng").mkdir()  # 空壳
+
+    actions = paths.migrate_legacy_data(local)
+
+    assert "removed-empty-target" in actions and "renamed" in actions
+    assert not old.exists()
+    assert (local / "Xifeng" / "xifeng.db").read_bytes() == b"x"
+
+
+def test_migrate_merges_without_overwriting(monkeypatch, tmp_path: Path) -> None:
+    """新目录已有库时不覆盖；只补旧目录里缺的（例如模型）。"""
+    monkeypatch.delenv("IME_DATA_DIR", raising=False)
+    local = tmp_path / "local"
+    old = local / "VoiceIME"
+    new = local / "Xifeng"
+    (old / "models" / "vad").mkdir(parents=True)
+    (old / "models" / "vad" / "silero_vad.onnx").write_bytes(b"vad")
+    (old / paths.LEGACY_DB_NAME).write_bytes(b"old")
+    new.mkdir(parents=True)
+    (new / "xifeng.db").write_bytes(b"new")
+
+    actions = paths.migrate_legacy_data(local)
+
+    assert "renamed" not in actions
+    assert (new / "xifeng.db").read_bytes() == b"new"  # 不覆盖
+    assert (new / "models" / "vad" / "silero_vad.onnx").read_bytes() == b"vad"
+    assert old.is_dir()  # 合并保留旧目录做备份
+
+
+def test_migrate_skips_when_data_dir_is_explicit(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("IME_DATA_DIR", str(tmp_path / "d"))
+    old = tmp_path / "local" / "VoiceIME"
+    old.mkdir(parents=True)
+    assert paths.migrate_legacy_data(tmp_path / "local") == []
+    assert old.is_dir()
+
+
+def test_db_path_falls_back_to_legacy_when_migration_failed(monkeypatch, tmp_path: Path) -> None:
+    """迁移失败（旧目录被占用）时继续用旧库，历史不能凭空消失。"""
+    monkeypatch.delenv("IME_DB", raising=False)
+    monkeypatch.delenv("IME_DATA_DIR", raising=False)
+    local = tmp_path / "local"
+    (local / "VoiceIME").mkdir(parents=True)
+    (local / "VoiceIME" / paths.LEGACY_DB_NAME).write_bytes(b"x")
+    (local / "Xifeng").mkdir()
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    assert paths.db_path() == local / "VoiceIME" / "voiceime.db"
+
+
+def test_models_root_uses_legacy_dir_when_migration_failed(monkeypatch, tmp_path: Path) -> None:
+    """模型统一根迁移失败时只读旧目录，不逼用户重下 228MB。"""
+    monkeypatch.delenv("IME_MODELS_ROOT", raising=False)
+    local = tmp_path / "local"
+    legacy = local / "VoiceIME" / "models"
+    (legacy / "asr" / "sensevoice-small-int8").mkdir(parents=True)
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    assert paths.models_root() == legacy

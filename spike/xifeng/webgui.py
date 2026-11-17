@@ -33,7 +33,7 @@ CHROME_CANDIDATES = (
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",   # 回退
 )
-REPO = os.environ.get("IME_REPO", "qxsvsq81/Xifeng")   # 更新检查 / GitHub 跳转用
+REPO = os.environ.get("IME_REPO", "Topskys/Xifeng")   # 更新检查 / GitHub 跳转用
 PORT = 8642  # 与 frontend/vite.config.ts 的 dev 代理一致
 PAGES = ("stats", "models", "config", "history", "about")
 

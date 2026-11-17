@@ -54,7 +54,7 @@ export function AboutPage({ boot }: { boot: Bootstrap }) {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => api.open("https://github.com/qxsvsq81/Xifeng")}
+            onClick={() => api.open("https://github.com/Topskys/Xifeng")}
           >
             <ExternalLink /> GitHub
           </Button>

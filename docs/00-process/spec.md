@@ -11,6 +11,10 @@ Scope: **仅 M0**。GUI / 纠错 / 模型热切换不在本文件范围内（见
 > **后续落地（v0.23，2026-10-30）**：纠错已实现为「本地 Qwen2.5-0.5B + 守卫，默认关」
 > （`correction.py`，G32），术语表方案已下线。本文件 §1/§9 仍按 M0 当初的范围书写，
 > 现状以 `plan.md` 的 0.23 行为准。
+>
+> **再修订（2026-11-09/13，D14/D16）**：交付形态改为 **Tauri 壳 + Python sidecar**，
+> 触发链在壳里、Python 只做推理；D6 的 PyInstaller 单产物降为"仅交付 Python 运行时"。
+> 现状以 `01-overview/architecture.md` 与 `plan.md` D14–D22 为准。
 
 ---
 

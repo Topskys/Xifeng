@@ -2,109 +2,100 @@
 
 本文件描述 Xifeng 的进程划分、模块归属与技术选型理由。变更架构前 MUST 先读本文件并同步更新。
 
-> **2026-10-29 决策（D6）**：交付形态改为 **Python 单进程 + PyInstaller**，Rust 版推迟。
-> 下文的 Rust 目标态保留为"后续可选"，当前实现见 `spike/xifeng/`：
-> `hotkey → LiveMic → asr(sherpa) → post → inject`，模块边界与下表一一对应。
->
-> **2026-11-09 修订（D13）**：Rust **以 PyO3 扩展参与**，Python 仍是主流程。
-> 已落地部分是后处理：`crates/ime-post`（规则，纯 Rust）→ `crates/ime-py`（`xifeng_rs.pyd`，
-> abi3-py311）。Python 侧 `xifeng/postprocess.py` 保留纯 Python 基准实现，
-> 默认自动走 Rust；`cargo test -p ime-post` 与 `tests/test_postprocess_parity.py` 两侧都校验。
-> 热键钩子 / 音频环 / VAD / 注入属于第 2 阶段。
+> **现行架构（D14 2026-11-09，D16 2026-11-13 定稿）**：**Tauri 壳（Rust）管触发链，
+> Python sidecar 只做推理。**
+> 壳：`WH_KEYBOARD_LL` 热键 → cpal 按需开麦 → 环形缓冲 → 喂送线程 → IPC；松手后
+> `ime-post` 后处理 → `SendInput` 注入。托盘、自启、五页 webview、录音浮窗也在壳里。
+> Python：`--ipc` stdio NDJSON（`asr_begin/feed/end/cancel`），吃 PCM 吐原始文本；
+> 历史/设置/统计仍由 Python 侧的 SQLite 承担（壳经 `session_record` 落一条）。
+> 旧的 Python `--ptt --tray` 语音服务已退役（D16），只保留为源码调试回路。
 
-## 进程模型（目标态）
+## 进程模型（现状）
 
 | 进程 | 实现 | 职责 | 崩溃策略 |
 |---|---|---|---|
-| `ime-service` | Rust (tokio) | 热键、音频采集、VAD、PyO3 推理、后处理、注入、模型管理、IPC 服务端 | 自动重启 1 次/分钟；状态从磁盘恢复 |
-| `ime-gui` | Tauri 2 | 统计 / 模型 / 配置 / 历史 / 关于 五页 + IPC 客户端 | 独立崩溃不影响输入功能 |
+| `xifeng.exe` | Tauri 2 + Rust | 热键与 150ms 组合键观察窗、cpal 采集与 drain、`ime-post` 后处理、`SendInput` 注入、录音浮窗、托盘、自启、设置读取 | 崩溃后由自启/用户重新拉起；进程内不持久化会话 |
+| `Xifeng-Core.exe` | Python 3.11（PyInstaller onedir） | SenseVoice ASR、静音裁剪/VAD、可选 Qwen 纠错、SQLite（历史/设置/统计）、`--web` 调试界面 | 壳检测到退出会显式报错（不静默返回空文本）；下一次会话由壳重新拉起 |
 
-两进程 MUST NOT 共享内存以外的状态；一切交互走 JSON-RPC over Named Pipe `\\.\pipe\xifeng`。
+两进程只通过 **stdio NDJSON** 交互（契约见 `03-core-concepts/ipc-contract.md`），
+不共享内存、不开端口（`--web` 调试模式例外，仅绑定 `127.0.0.1:8642`）。
 
-> **当前 Python 形态（D6/D7）**：一个 `Xifeng.exe` 同时承担 service + tray，
-> `--tray` 时隐藏控制台并常驻；主界面用 `--web` **另起一个进程**（本地 HTTP + Edge 应用窗口，
-> `spike/frontend` 的 React 五页），共享同一个 SQLite 文件而不是 Named Pipe。
-> Web 崩了不影响输入，PTT 退出也不影响看历史。
-> 两个 resident 实例由命名 Mutex 挡住。
+## 壳内模块（`spike/frontend/src-tauri/src/`）
 
-## ime-service 内部模块
-
-| crate | 职责 | 关键依赖 | M0 |
-|---|---|---|---|
-| `ime-core` | 管线状态机、Trace、降级决策 | tokio, crossbeam | ✅ |
-| `ime-audio` | cpal 采集 16k/mono、环形缓冲 | cpal | ✅ |
-| `ime-vad` | Silero VAD v5（ort）、双阈值切分、段重组 | ort | ❌ M1 |
-| `ime-infer` | PyO3 嵌入；ASR 与 LLM | pyo3, numpy | ✅（仅 ASR） |
-| `ime-post` | TextPostProcessor：幻觉/语气词/归一化 | regex | ✅ |
-| `ime-correct` | LLM 纠错编排 + 守卫（Python 版已落地，默认关） | — | ❌ M2 |
-| `ime-inject` | 焦点快照、SendInput / 剪贴板 | windows, arboard | ✅ |
-| `ime-registry` | 模型清单、下载校验、热切换 | reqwest, sha2, arc-swap | ❌ M3 |
-| `ime-hotkey` | 全局热键（rdev，Ctrl 长按 + Esc 取消） | rdev | ✅ |
-| `ime-ipc` | Named Pipe JSON-RPC | tokio | ❌ M3 |
-
-## 当前 Python 实现（交付形态）
-
-上表是**目标态**（Rust，推迟）。当前代码与它的对应关系：
-
-| 文档里的概念 | 实际文件 | 说明 |
+| 文件 | 职责 | 关键约束 |
 |---|---|---|
-| `ime-hotkey` | `xifeng/hotkey.py` | `WH_KEYBOARD_LL` + 轮询兜底 + 按需开麦（G23） |
-| `ime-audio` | `xifeng/audio.py` + `hotkey.LiveMic` | sounddevice 16k i16，按下才开流、回调只入队 |
-| `ime-infer` | `xifeng/asr.py` | sherpa-onnx / SenseVoice；独立线程推理 |
-| `ime-post` | `xifeng/postprocess.py` | 幻觉/语气词/归一化 |
-| `ime-correct`（Python 版） | `xifeng/correction.py` | 本地 Qwen2.5-0.5B + 守卫（默认关，G32） |
-| `ime-inject` | `xifeng/inject.py` | 焦点快照 + SendInput(UNICODE) + 剪贴板兜底（`auto`） |
-| Trace | `xifeng/trace.py` | JSONL + 分位数 |
-| 存储（原 M3） | `xifeng/store.py` | SQLite：历史/统计/设置 |
-| 路径解析 | `xifeng/paths.py` | 源码/冻结两套（G24/G25） |
-| 托盘 / 自启 | `xifeng/{tray,autostart}.py` | pystray 菜单、命名 Mutex、`HKCU\...\Run` |
-| GUI（M3） | `spike/frontend` + `xifeng/webgui.py` | React + shadcn 五页；`127.0.0.1:8642` + Edge `--app`（G31） |
-| 旧 GUI（兜底） | `xifeng/gui.py` | tkinter 四页，`--gui` 仍可用 |
-| 应用日志 | `xifeng/applog.py` | `--tray` 隐藏控制台后的 stdout/stderr（UTF-8 文件） |
-| `ime-service` 骨架 | `run_spike.py` + `pipeline.py` | 状态机、Trace、CLI、`--tray` 常驻 |
+| `hotkey.rs` | `WH_KEYBOARD_LL` 钩子；左右互斥；`pressed`/`drain_presses`；忽略带魔数的自家注入 | 回调内不加锁、不做 IO（G20） |
+| `voice.rs` | 编排：按下 → 观察窗 → 弹浮窗 ∥ `mic.start()` → 录音循环 → drain → `asr_end` → `ime-post` → 注入 → `session_record` | 浮窗与开流并行（D20）；组合键判定回传（G42） |
+| `inject.rs` | 焦点快照、`build_events`、SendInput(UNICODE)、剪贴板兜底、提权拒绝 | UTF-16 码元；换行 `VK_RETURN`（G2/G3/G7/G13） |
+| `py.rs` | sidecar 生命周期、NDJSON 读写、单次 RPC 超时、`env_compat` | stderr 按 UTF-8 读行（G43）；`VOICEIME_*` 只读兼容 |
+| `tray.rs` | 托盘两项：显示主界面 / 退出 | 不起第二个实例 |
+| `autostart.rs` | 写 `HKCU\...\Run\Xifeng`，删旧值 `VoiceIME` | 只写 HKCU，免 UAC |
+| `main.rs` | 窗口（主界面 + `?window=overlay`）、命令注册、启动预热 | 模式切换在**下一次会话**生效 |
+
+## Python 侧模块（`spike/xifeng/`）
+
+| 文件 | 职责 | 说明 |
+|---|---|---|
+| `ipc.py` | NDJSON 方法表与分发（`asr_begin/feed/end/cancel`、`bootstrap`、`settings_*`、`correct`、`session_record`、`check_update` …） | 与 `webgui.Api` 一一对应 |
+| `asr_runtime.py` | sidecar 会话：收 PCM → 裁剪/VAD → 解码 → 返回原始文本 | 不做后处理（后处理在壳） |
+| `asr.py` | sherpa-onnx / SenseVoice 适配（mock / auto 兜底） | 独立线程推理 |
+| `correction.py` | 本地 Qwen2.5-0.5B + 守卫（默认关，G32） | 输出必须先过 `check` |
+| `vad.py` | 能量/Silero VAD 与首尾裁剪，按**整句**调用一次 | 基准实现；热点可走 `xifeng_rs` |
+| `postprocess.py` | 幻觉/语气词/归一化，纯 Python 基准 | 与 `crates/ime-post` 逐字节等价（parity 测试） |
+| `store.py` | SQLite：历史 / 统计 / 设置（G25） | 库在 `%LOCALAPPDATA%\Xifeng\xifeng.db` |
+| `paths.py` | 数据/模型目录解析，旧 `VoiceIME` 迁移（D21/G43） | `XIFENG_*` 环境变量 |
+| `webgui.py` | HTTP 调试界面 + `check_update`（GitHub latest release） | 只绑 `127.0.0.1` |
+| `settings.py` / `autostart.py` / `applog.py` | 设置校验、源码调试用自启、日志 | 壳侧各有对应实现 |
+
+`--gui`（tkinter 四页）与 `--tray` 仍可用，仅作源码调试；安装版不经过它们。
 
 ## 线程模型
 
 ```
-主线程       ─ tokio runtime（IPC、模型下载、事件）
-音频线程     ─ cpal 回调，仅入队（禁止阻塞）
-VAD 线程     ─ 30ms 块消费，Rust 直跑 Silero，输出段事件（M1）
-推理线程     ─ Python 解释器所在线程（GIL 持有者），消费 PCM 队列
-注入线程     ─ SendInput 序列发送（块间 5ms）/ 剪贴板兜底
+壳主线程   ─ Tauri 事件循环（热键回调、窗口、IPC 调用）
+音频回调   ─ cpal：只把一块 PCM 拷进 SPSC 环形缓冲（禁止 IO/锁/日志/推理）
+喂送线程   ─ 环 → 20ms 块 → base64 → asr_feed（会话中）
+注入路径   ─ ime-post → SendInput 序列（块间 5ms）/ 剪贴板兜底
+Python 侧  ─ 单进程：asr_end 内同步裁剪/VAD/解码；纠错在独立线程；DB 访问走同一进程
 ```
 
 约束：
 
-- Python 解释器 MUST 在启动时于推理线程初始化一次，之后 MUST NOT 迁移线程（PyO3 要求）
-- 音频回调中 MUST NOT 持锁等待、MUST NOT 调用 Python
+- 音频回调里 MUST NOT 持锁等待、MUST NOT 调用 Python
+- 推理 MUST 在独立线程；壳侧不得在等 IPC 时阻塞音频回调
+- 同一时刻只允许一个语音会话；设置热更在会话之间生效
 
 ## 数据流（一次输入）
 
 ```
-热键按下 → 采集(16k i16) → 首尾静音裁剪 → ASR
-  → TextPostProcessor →（可选）模型纠错 + 守卫 → Injector(光标)
-  → Trace 汇总 → SQLite(history) / 日志 → Web GUI(随时读同一个库)
+热键按下 → cpal 开流 → 环形缓冲 → 喂送线程 → asr_begin/asr_feed
+  松手 → drain 120ms → asr_end →（Python：裁剪/VAD + SenseVoice 解码）
+  → 原始文本 →（可选）correct + 守卫 → ime-post（壳）
+  → SendInput(UNICODE) 注入 → session_record → SQLite / 日志 / GUI
 ```
 
-VAD 切分仍是 M1 才引入；当前用"按键起止 + 能量法首尾裁剪"。
-纠错默认关（每句 +0.35–1.5s）；开启后其输出必须先过 `correction.check` 守卫，
-拒绝就注入清理后的原文（G32）。
+空结果不注入；提权目标显式失败；日志只记长度与 outcome。
 
 ## 技术选型（已定，变更需评审）
 
 | 点 | 选型 | 理由 | 备选 |
 |---|---|---|---|
 | ASR | SenseVoice-Small ONNX int8 | 中文强、自带标点/ITN、CPU RTF≈0.07 | Paraformer、Faster-Whisper |
-| VAD | Silero v5（Rust ort） | 30ms 块 <1ms，不进 Python | FSMN-VAD、能量 VAD |
+| VAD | Silero v5（`xifeng/vad.py`，可走 `xifeng_rs`） | 按句调用一次，不进音频回调 | FSMN-VAD、纯能量 |
 | 纠错 | Qwen2.5-0.5B GGUF Q4（本地）+ 守卫 | CPU 热身后 0.35–1.5s/句，可整段关掉；守卫兜住小模型乱改 | GLM-Edge、云 API |
-| 桥接 | PyO3 嵌入 | 零序列化开销 | 独立进程 + gRPC |
-| GUI | 当前 Web（vite+React+shadcn，D7） / 目标 Tauri 2 | Edge `--app` 免 WebView 依赖，界面即 Web 技术栈 | Tauri、Qt、tkinter |
-| 音频 | cpal + 环形缓冲 | 成熟、低延迟 | — |
+| 桥接 | 壳 ↔ Python：stdio NDJSON | 无端口、无序列化框架；IPC 契约可测 | Named Pipe、gRPC |
+| 进程内热点 | PyO3（`xifeng_rs`：`ime-post` / `ime-vad`） | 零序列化开销，Python 保留等价基准 | 纯 Python |
+| GUI | Tauri 2 内嵌 webview（五页） | 与壳同进程，无需本地端口；React 复用 | Edge `--app` + HTTP（仅调试） |
+| 音频 | cpal + SPSC 环形缓冲 | 成熟、`play→首回调` 17–24ms | PortAudio（旧栈 95–376ms） |
 | 注入 | SendInput (UNICODE) + 剪贴板兜底 | 正常情况免切输入法、不碰剪贴板；不吃 `WM_CHAR` 的目标自动降级 | 纯剪贴板、纯 IME |
-| 托盘 | pystray + Pillow | 纯 ctypes 调 Shell_NotifyIcon，不引 pywin32 | 自写 Win32 |
-| 开机自启 | `HKCU\...\Run` | 免 UAC、卸载删一个值即可 | 启动文件夹 .lnk |
+| 托盘 | Tauri `tray-icon` | 与壳同进程，不引 pystray | pystray（Python 调试） |
+| 开机自启 | `HKCU\...\Run\Xifeng` | 免 UAC、卸载删一个值即可 | 启动文件夹 .lnk |
 
-## 为什么不把 VAD 放 Python
+## VAD 为什么按句做，而不是 30ms 流式
 
-VAD 每 30ms 一次，一天几千次调用。跨语言边界 + GIL + numpy 转换的固定开销会吃掉预算，
-且会让音频链路依赖 Python 进程存活。**高频小计算留 Rust，低频大计算进 Python** 是硬边界。
+流式 VAD 每 30ms 一次，一天几千次调用；跨进程/跨语言边界的固定开销会吃掉预算，
+还会让音频链路依赖另一个进程的存活。当前实现是在 `asr_end` 里对**整段音频**做一次
+VAD 与首尾裁剪（O(n)，毫秒级），足够解决"长静音幻觉"和"首尾空白"。
+
+如果将来要"边录边切句"（流式上屏），VAD MUST 留在壳里跑 `crates/ime-vad`
+（算法与 Python 基准等价，有 parity 测试），MUST NOT 每 30ms 发一次 IPC。

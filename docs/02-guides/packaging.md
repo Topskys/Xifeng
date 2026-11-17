@@ -1,10 +1,12 @@
-# 打包与交付（PyInstaller）
+# 打包与交付
 
-**技术路线**：Python 主流程直接交付，不再为 M0 引入 Rust。见 `00-process/plan.md` 偏离 D6。
+**当前交付形态：Tauri 壳（`xifeng.exe`）+ Python sidecar（`Xifeng-Core`）**（D14/D16）。
+壳与安装器在 `spike/frontend` 用 `pnpm tauri:build` 构建；sidecar 由
+`packaging/build_core.py` 打进 `src-tauri/resources/core/`。见下文「sidecar」与「发版」两节，
+工具链见 `tauri-env.md`。
 
-工具选型：**PyInstaller（onedir）**。不用 Nuitka —— Nuitka 要 C 编译器（MSVC 3.5–5GB
-或 MinGW 0.5GB），PyInstaller 纯 Python 即可；onedir 也不用像 onefile 那样每次启动
-解压 17MB 的 `onnxruntime.dll`。
+> 下面「前置 → 交付」的主体是 **PyInstaller 形态**（D6 时代产物，仅用于单独交付
+> Python 运行时），保留是因为 `packaging/build.py` 仍在用；日常发版走壳路线。
 
 ## 前置
 
@@ -274,8 +276,9 @@ git tag -a v0.1.0 -m "Xifeng 0.1.0" && git push origin v0.1.0
 - 版本按数字段比较（`0.10.0 > 0.9.0`），无 Release 时提示「仓库暂无 Release」而不是裸 404
 - 便携包与安装包的版本号 MUST 与 tag 一致，否则会误报「有新版本」
 
-日常使用：双击 `Xifeng-Tray.cmd`（或 `Xifeng.exe --tray`），再用
-`--autostart on` 让它开机常驻；需要看历史/改术语时从托盘打开窗口。
+正式形态的日常使用：安装包把壳装到 `%LOCALAPPDATA%\Programs\Xifeng`，托盘两项为
+「显示主界面 / 退出」，开机自启写 `HKCU\...\Run\Xifeng`（指向壳 exe）。
+以下「已知限制」表里带 `--tray` / 控制台隐藏的行属于 PyInstaller 形态。
 
 ## 已知限制
 

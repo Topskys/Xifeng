@@ -1,12 +1,25 @@
 # 快速开始
 
-本文件只回答一件事：**怎么在这台机器上，5 分钟内把一次语音输入跑通。**
+本文件回答两件事：**普通用户怎么用起来**，**开发者怎么在 5 分钟内把一次语音输入跑通**。
 
-当前交付形态是 Python + PyInstaller（`plan.md` D6），可运行的只有 `spike/`。
-GUI（M3）与托盘/开机自启（M4）已实现；仍是**单份 console 产物**，`--tray` 启动时
-自己隐藏控制台窗口（`plan.md` D7）。
+当前交付形态是 **Tauri 壳（`xifeng.exe`）+ Python sidecar（`Xifeng-Core`）**（`plan.md` D14/D16）：
+热键、采集、VAD、后处理、注入、浮窗、托盘都在壳里；Python 只做 ASR 与可选纠错。
+`spike/` 放 Python 运行时与源码，`crates/` 放 PyO3 扩展。
 
-## 0. 前提
+## A. 用安装包（不需要开发环境）
+
+1. 从 [Releases](https://github.com/Topskys/Xifeng/releases) 下载 `Xifeng_0.1.0_x64-setup.exe`
+2. 安装到 `%LOCALAPPDATA%\Programs\Xifeng`（安装器**默认不带模型**）
+3. 启动 → 「模型」页下载 ASR / VAD（约 239 MB，落到 `%LOCALAPPDATA%\Xifeng\models`）
+4. 打开记事本，**按住右 Ctrl** 说一句，松开
+
+托盘图标可打开主界面或退出；数据在 `%LOCALAPPDATA%\Xifeng`，卸载不删。
+
+## B. 源码路线（开发者）
+
+以下 0–10 步都在 `spike/` 里执行。
+
+### 0. 前提
 
 | 项 | 要求 | 检查 |
 |---|---|---|
@@ -15,9 +28,10 @@ GUI（M3）与托盘/开机自启（M4）已实现；仍是**单份 console 产�
 | 麦克风 | 任意可用输入设备 | `uv run python -c "import sounddevice;print(sounddevice.query_devices())"` |
 | 磁盘 | ≥1GB（模型 239MiB + 环境） | — |
 
-> Rust 工具链（`cargo`）**M0 不需要**，Step 1 才装。
+> 只跑 Python 部分**不需要** Rust；编译 `xifeng_rs` 扩展或 Tauri 壳才需要
+> （见 `rust-env.md`、`tauri-env.md`）。
 
-## 1. 装环境（约 20 秒）
+### 1. 装环境（约 20 秒）
 
 ```bash
 cd voice-ime/spike
@@ -26,15 +40,15 @@ uv sync
 
 `uv` 会创建 `spike/.venv`（Python 3.11），并按 `pyproject.toml` 从清华镜像装依赖。
 
-## 2. 验证代码没坏（<1 秒）
+### 2. 验证代码没坏（约 30 秒）
 
 ```bash
 uv run pytest
 ```
 
-期望：`193 passed`。
+期望：`330 passed`（含 Rust/Python parity，需先 `uv sync`）。
 
-## 3. 先看文本清理（不需要模型、不打字）
+### 3. 先看文本清理（不需要模型、不打字）
 
 ```bash
 uv run python run_spike.py --text "呃 今天 我们 嗯 开个会，讨论一下 PyO3。" --no-inject
@@ -63,7 +77,7 @@ uv run python run_spike.py --text "呃 今天 我们 嗯 开个会，讨论一�
 [correct] 保留原文（drop-start）4288ms
 ```
 
-## 4. 下载模型（239MiB，可选）
+### 4. 下载模型（239MiB，可选）
 
 不下载也能跑，ASR 会退回 `mock`（固定文本）。要真实识别就下载：
 
@@ -73,21 +87,22 @@ uv run python fetch_model.py
 
 支持断点续传；默认走 `hf-mirror.com`（官方源国内不通）。
 
-## 5. 录一段，看 Trace
+### 5. 录一段，看 Trace
 
-**按住说话（推荐，和最终形态一致）**：
+**按住说话**（这里跑的是 Python 开发回路；日常形态是壳，见 A 段）：
 
 ```bash
 uv run python run_spike.py --ptt --no-inject --print-raw
 ```
 
-- 看到 `等待按下 ctrl …` 后，**按住 Ctrl 说一句，松开**
+- 看到 `等待按下 ctrl …` 后，**按住右 Ctrl 说一句，松开**
 - 启动时会打印 `[mic] 按需开麦`：不按键时麦克风是关的，按下才开始采集（G23）
-- 代价是按下后 100–400ms 的开流静默期：浮窗/提示出现后再开口，别抢话
-- 确实需要消掉这段静默期才加 `--resident-mic`（会一直占用麦克风，Windows 指示常亮）
+- Python 走的是旧 PortAudio 栈，按下后有 **100–400ms** 开流静默期，提示出现后再开口；
+  壳侧 cpal 实测 `play→首回调` 仅 **17–24ms**（G23 复测），所以安装版没有这段等待
+- 确实需要消掉 Python 这段静默期才加 `--resident-mic`（会一直占用麦克风，Windows 指示常亮）
 - `[mic] 2.15s` 比按住时长长是正常的（含前置缓冲 + 120ms 尾音收尾）
 - `--no-inject` 只处理、不打字，安全
-- 松开后 250ms 内不足判定为误触（`Ctrl+C` 不会触发）；录音中按 Esc 取消
+- 按住不足 250ms 判定为误触（`Ctrl+C` 不会触发）；录音中按 Esc 取消
 - 默认会**裁掉首尾静音**（省 ASR 时间、防长静音幻觉）；想听原样加 `--no-trim`
 
 连说 3 次验证稳定性：
@@ -129,7 +144,7 @@ uv run python run_spike.py --ptt --inject auto        # 默认：先按键，确
 
 回车版本（不占键盘，适合调试）：`uv run python run_spike.py --interactive --no-inject`
 
-## 6. 真注入（会往当前光标打字）
+### 6. 真注入（会往当前光标打字）
 
 最省事的验证：让脚本自己开一个测试窗口、注入、再读回比对。
 
@@ -158,7 +173,7 @@ uv run python run_spike.py --text "你好，世界😀"
 
 > ⚠️ 焦点在终端时，注入的文字会打进 shell 提示符。首测请加 `--no-inject`。
 
-## 7. 拿延迟数字
+### 7. 拿延迟数字
 
 ```bash
 uv run python bench.py --n 20 --seconds 3                                   # 管线开销
@@ -167,7 +182,7 @@ uv run python bench.py --n 20 --wav sample.wav --backend sherpa --threads 4 # �
 
 结果追加到 `../docs/01-overview/latency-budget.md` 的"当前实测"表，禁止覆盖历史行。
 
-## 8. 验证"认得准不准"
+### 8. 验证"认得准不准"
 
 延迟达标 ≠ 能用。跑固定句子，算字错率：
 
@@ -184,7 +199,7 @@ uv run python quality_check.py
 > 必须用真人录音。TTS 合成音频对 SenseVoice 太友好，CER 接近 0，不代表真实分布。
 > 当前 5 句：原始 3.3%，清理后 0.0%（规则层下线后仍为 0.0%，见 `04-reference/metrics.md`）。
 
-## 9. 看历史 / 统计 / 改设置
+### 9. 看历史 / 统计 / 改设置
 
 数据都在一个 SQLite 文件里（`%LOCALAPPDATA%\Xifeng\xifeng.db`；
 Low 进程回退 `spike/.data`）。见 `03-core-concepts/storage.md`。
@@ -212,7 +227,9 @@ Web 界面是**独立进程**：本地只监听 `127.0.0.1:8642`，用系统 Edg
 > `--gui` 仍能打开旧版 tkinter 四页窗口（无「关于」页），仅作兜底；
 > 托盘菜单与日常使用都走 Web。
 
-## 10. 托盘常驻 + 开机自启（日常形态）
+### 10. Python 托盘（调试用，非日常形态）
+
+日常形态是 A 段的壳；这一节只在没有编壳、想单独调 Python 回路时用：
 
 ```bash
 uv run python run_spike.py --tray                # 隐藏控制台，托盘常驻
@@ -228,9 +245,8 @@ uv run python run_spike.py --autostart off
   （源码 Low 进程回退 `spike/.data/xifeng.log`）
 - 只允许一个托盘实例；重复启动会直接退出（命名 Mutex）
 
-> 开机自启命令带 `--tray`。源码形态写的是
-> `"<python.exe>" "<spike>\run_spike.py" --tray`；冻结形态写的是 `"Xifeng.exe" --tray`。
-> 若移动了程序目录，先 `--autostart off` 再 `on` 一次。
+> `--tray` 是 Python 侧的调试入口；正式安装版由壳直接拉起 `Xifeng-Core --ipc`，
+> 不再有 Python 语音服务进程（D16）。自启值只写 `HKCU\...\Run\Xifeng`，指向壳 exe。
 
 ## 常见故障
 
@@ -247,5 +263,6 @@ uv run python run_spike.py --autostart off
 
 ## 下一步
 
-- 要交付给不装 Python 的人：`02-guides/packaging.md`（PyInstaller onedir）
-- 要加功能：先看 `00-process/plan.md` 的 Step 0 表与 `00-process/sdlc.md`（闸门）
+- 要出安装包/便携包：`02-guides/packaging.md`（Tauri 壳 + sidecar、发版与检查更新）
+- 要改壳或扩展：`02-guides/tauri-env.md`、`02-guides/rust-env.md`
+- 要加功能：先看 `00-process/plan.md` 的决策表与 `00-process/sdlc.md`（闸门）

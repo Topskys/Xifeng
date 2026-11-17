@@ -1,22 +1,25 @@
-# Xifeng
+# Xifeng（溪风）
 
-> 本地语音输入法。Python 主流程（sounddevice + ctypes Win32） + SenseVoice ASR，
-> PyInstaller 打包交付；Rust 版推迟（`00-process/plan.md` D6）。
-> 按住热键说话，松开出字，落在光标处。端到端 P95 ≤ 1.5s（硬指标）。
-> 纠错由本地 Qwen2.5-0.5B 完成（默认关，开启后 +0.5–1.5s，见 G32），不再有术语表。
+> 本地语音输入法（Windows）。**Tauri 壳（Rust）+ Python sidecar**：
+> 热键、采集、VAD、后处理、注入、浮窗、托盘都在壳里；Python 只做 SenseVoice ASR 与可选纠错推理。
+> 按住热键说话，松开出字，落在光标处。端到端 P95 ≤ 1.5s（硬指标，实测 582ms）。
+> 识别、纠错、注入全程在本机完成；音频与文本不上传。
 
 修改任何代码前，按任务读取对应文档。延迟预算与坑位清单为强制阅读项。
 
 ## 硬约束（适用于一切代码变更）
 
 - 端到端 P95 不得超过 1500ms；新增处理 MUST 在 `01-overview/latency-budget.md` 登记额度
-- 模型纠错默认关；开启时其输出 MUST 通过守卫（句首/连续删词、大改、解释性输出一律丢弃）
-- 音频与文本 MUST NOT 离开本机；唯一网络请求是模型下载
-- 不录音时 MUST NOT 占用麦克风：默认按下热键才开流，松开后关闭
+- 模型纠错默认关；开启时其输出 MUST 通过守卫（句首、连续删词、大改、解释性输出一律丢弃）
+- 音频与文本 MUST NOT 离开本机；联网只有模型下载与版本检查（后者只取 release 元数据，不含任何内容）
+- 不录音时 MUST NOT 占用麦克风：壳默认按下热键才开流，松开后关闭
 - 音频回调里 MUST NOT 做 IO/日志/推理/加锁；≥10Hz 的实时处理 MUST 留在回调之外
-- 注入文本 MUST 经 `postprocess`；空结果不注入
+- 注入文本 MUST 经 `postprocess`（Python 基准、Rust 等价实现，parity 测试锁死）；空结果不注入
+- 换行 MUST 用 `VK_RETURN`，禁止发送 Unicode `\n`
 - 剪贴板兜底 MUST 恢复原内容；若期间剪贴板已被改写则 MUST NOT 覆盖
 - 日志 MUST NOT 记录识别文本全文
+- 触发是**单击按住**（D17）：热键左右互斥（默认右 Ctrl），含 Ctrl 的组合键在 150ms 观察窗内静默丢弃
+- 用户数据 MUST 落 `%LOCALAPPDATA%\Xifeng`；旧 `VoiceIME` 只迁移 + 只读兜底
 
 ## 过程文档（SDLC 工件，`00-process/`）
 
@@ -24,7 +27,7 @@
 |---|---|---|
 | `00-process/intent.md` | G0 | 要什么、为什么、成功标准 |
 | `00-process/spec.md` | G1 | 需求 + 延迟预算 + 接口契约 |
-| `00-process/plan.md` | G2 | 改哪些文件、顺序、风险、怎么证明 |
+| `00-process/plan.md` | G2 | 改哪些文件、顺序、风险、怎么证明（含 D1–D22 决策） |
 | `00-process/review.md` | G4 | 复审清单 |
 | `00-process/sdlc.md` | — | 本项目开发流程（闸门/反馈回路/反模式） |
 
@@ -32,20 +35,20 @@
 
 - `01-overview/architecture`：进程模型、模块划分、线程模型、选型理由
 - `01-overview/latency-budget`：各阶段额度表与降级规则（硬约束）
-- `02-guides/quickstart`：5 分钟跑通一次语音输入
-- 界面：`run_spike.py --web`（vite+react+shadcn，Edge 应用模式窗口）；`--gui` 为 tkinter 旧版
-- `02-guides/packaging`：PyInstaller 打包、模型放置、交付目录与验收（G24）
-- `02-guides/rust-env`：Rust 工具链装在哪（`D:\env`）、最小安装集、镜像与 SourceForge 坑
-- `03-core-concepts/hotkey`：PTT 键位、钩子/轮询采集、误触保护、取消、读不到键时怎么诊断
+- `02-guides/quickstart`：5 分钟跑通一次语音输入（安装包 / 源码两条路）
+- `02-guides/packaging`：Tauri 壳 + sidecar 打包、安装目录、发版与检查更新
+- `02-guides/rust-env`、`02-guides/tauri-env`：Rust 与 Tauri 工具链装在哪（`D:\env`）
+- `03-core-concepts/hotkey`：热键、观察窗、误触保护、取消失败时怎么诊断
+- `03-core-concepts/ipc-contract`：壳 ↔ Python 的 NDJSON 方法契约
 - `03-core-concepts/pipeline`：状态机、打点位置、空结果路径
-- `03-core-concepts/postprocess`：幻觉过滤、语气词三级清理、归一化（Rust 实现见 `crates/ime-post`，两边由 parity 测试锁死）
+- `03-core-concepts/postprocess`：幻觉过滤、语气词三级清理、归一化（Rust 实现见 `crates/ime-post`，parity 测试锁死）
 - `03-core-concepts/injection`：焦点快照、三种注入策略、失败模式
 - `03-core-concepts/storage`：SQLite 表结构、库位置、隐私边界、迁移与保留（G25）
 - `04-reference/metrics`：Trace 字段与统计口径
-- `05-gotchas`：已知坑位与对策（改相关模块前必读；G23 按需开麦、G31 Web GUI、G32 模型纠错、G33 冻结包 CRT、G34 浮窗毛玻璃）
+- `05-gotchas`：已知坑位与对策（G23 按需开麦、G39 首段 padding、G40 组合键、G41 开流成本、G43 迁移）
 
-> 未落地：`03-core-concepts/{vad,correction}`、`04-reference/{config,ipc-protocol}`。
-> 纠错实现以 `spike/xifeng/correction.py` 与 `05-gotchas.md` G32 为准。
+> 界面：Tauri 内嵌 webview（五页：统计/模型/配置/历史/关于）；`run_spike.py --web` 跑同一套页面的
+> HTTP 模式（只监听 `127.0.0.1:8642`），用于调试与 `--tray` 兜底。
 
 ## 原始素材
 

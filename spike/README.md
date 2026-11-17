@@ -1,16 +1,16 @@
 # spike —— 交付主程序（Python 实现）
 
-不再是"用完就扔的验证件"：2026-10-29 决定交付形态为 **Python + PyInstaller**
-（见 `docs/00-process/plan.md` 偏离 D6），本目录就是主程序。
+不再是"用完就扔的验证件"：交付形态现为 **Tauri 壳（`xifeng.exe`）+ Python sidecar（`Xifeng-Core`）**
+（`docs/00-process/plan.md` D14/D16），本目录是 Python 运行时与源码所在。
 
-它把 `录音 → ASR → 文本清理 → 术语表 → 光标注入` 串起来，并把三个**未实测假设**
+它把 `录音 → ASR → 文本清理 → 光标注入` 串起来，并把三个**未实测假设**
 变成数字：
 
 1. SenseVoice int8 在 8 核 CPU 上的真实 RTF
 2. `SendInput(KEYEVENTF_UNICODE)` 在记事本 / VSCode / 微信里的实际成功率
 3. 端到端 e2e 延迟分布（P50/P95）
 
-> `crates/` 的 Rust 版保留为后续可选方案；行为基准仍是这里的 `postprocess` / `glossary`。
+> `crates/` 的 Rust 实现是正式路径；Python 侧保留逐字节等价的基准实现（parity 测试锁死）。
 
 ## 环境
 
@@ -19,7 +19,7 @@
 ```bash
 cd spike
 uv sync                # 首次或依赖变更后
-uv run pytest          # 328 个用例，约 25s
+uv run pytest          # 330 个用例，约 30s
 ```
 
 禁止 `pip install` 到系统 Python：曾因直连 pypi 卡死 6 分钟（见 `plan.md` 偏离 D4）。
@@ -44,8 +44,9 @@ uv run python run_spike.py --wav sample.wav --no-inject  # 用现成音频
 
 PTT 键位：`--key rctrl`（默认，右 Ctrl；左右互斥）/ `lctrl` / `lshift` / `rshift`。
 
-麦克风默认**按下才开、松开就关**（不录音时不占用设备）。代价是开流有 100–400ms
-静默期，看到"录音中"再开口；要消掉这段延迟可加 `--resident-mic`（会一直占用麦克风）。
+麦克风默认**按下才开、松开就关**（不录音时不占用设备）。Python 走旧 PortAudio 栈，
+开流有 100–400ms 静默期，看到"录音中"再开口；壳侧 cpal 实测仅 17–24ms（G23 复测）。
+要消掉 Python 这段延迟可加 `--resident-mic`（会一直占用麦克风）。
 
 误触保护：按住不足 `--min-hold-ms 250` 直接丢弃（`Ctrl+C` 不会触发录音）。
 录音中按 `Esc` 取消本次。单次上限 `--max-seconds 60`。
@@ -75,10 +76,10 @@ uv run python fetch_model.py            # 默认 hf-mirror.com，支持断点续
 uv run python fetch_model.py --force    # 强制重下
 ```
 
-模型落在 `../models/asr/sensevoice-small-int8/`（`model.int8.onnx` + `tokens.txt`）。
-也可用 `IME_MODELS_DIR` 或 `--model-dir` 指定。
+模型落在统一根 `%LOCALAPPDATA%\Xifeng\models\asr\sensevoice-small-int8\`
+（`model.int8.onnx` + `tokens.txt`，D15）。也可用 `XIFENG_MODELS_ROOT` 或 `--model-dir` 指定。
 
-## 数据：历史 / 统计 / 术语表（SQLite）
+## 数据：历史 / 统计 / 设置（SQLite）
 
 默认开着，库在 `%LOCALAPPDATA%\Xifeng\xifeng.db`（Low 进程回退 `<spike>/.data`，
 冻结 exe 在 `<exe 同级>\data`）。细节见 `docs/03-core-concepts/storage.md`、坑位见 G25。
@@ -86,41 +87,37 @@ uv run python fetch_model.py --force    # 强制重下
 ```bash
 uv run python run_spike.py --stats                  # 次数 / 成功率 / P50 / P95
 uv run python run_spike.py --history 20             # 最近 20 条（含注入文本）
-uv run python run_spike.py --terms                  # 术语表 + 命中次数
-uv run python run_spike.py --add-term "git hub=GitHub"
-uv run python run_spike.py --del-term "read me"
 uv run python run_spike.py --no-db --text "呃 你好"  # 完全不碰数据库
 uv run python run_spike.py --no-store-text          # 只记长度，不落文本
 ```
 
-术语表与复读折叠在注入前自动生效（`glossary.py`）：`voice i e` → `Xifeng`、
-`read me` → `README`、`就交就提交` → `就提交`。
-`--text` 模式也会跑一遍，方便调规则（打印 `[glossary] fixes=... hits=...`）。
+术语替换已随「不再有术语表」的决策移除，现在只有 `postprocess` 的规则层。
 
 ## Web 主界面（五页）
 
 ```bash
 uv run python run_spike.py --web                 # 默认统计页
-uv run python run_spike.py --web --tab terms     # 配置页并定位术语表
+uv run python run_spike.py --web --tab config    # 直接开配置页
 ```
 
 本地服务只监听 `127.0.0.1:8642`，用 Edge `--app` 开无地址栏窗口；关窗 30s 后自动退出。
-前端源码在 `frontend/`，改了要先 `vite build`（产物 `frontend/dist`，坑位见 G31）。
+安装版的同一套页面跑在 Tauri 内嵌 webview 里，不开本地端口。前端源码在 `frontend/`，
+改了要先 `vite build`（产物 `frontend/dist`，坑位见 G31）。
 
-## 打包成 exe（PyInstaller，onedir）
+## 打包（Tauri 壳 + sidecar）
 
 ```bash
-# 本仓库目录是 Low 完整性，必须用仓库外的 Medium 解释器构建
-uv venv %TEMP%\vi-venv --python 3.11
-set PYTHONPATH=D:\project\workspace\voice-ime\spike;D:\project\workspace\voice-ime\spike\.venv\Lib\site-packages
-%TEMP%\vi-venv\Scripts\python.exe packaging\build.py
+cd spike
+uv run python packaging/build_core.py --clean    # 产物 src-tauri/resources/core/Xifeng-Core
+cd frontend
+pnpm run tauri:build                             # 壳 + NSIS 安装器
 ```
 
-产物在 `%LOCALAPPDATA%\Xifeng-build\dist\Xifeng\`（145.7MB，exe 5.6MB；带模型 374.7MB）。
-模型外置：`<exe 同级>\models\asr\sensevoice-small-int8` 或 `IME_MODELS_DIR`。
-同一份 exe 支持 `--tray`（托盘常驻）/ `--web`（Web 五页）/ `--gui`（旧版兜底）/ `--autostart on`。
-`--web` 需要 `<exe 同级>\frontend`，`build.py` 会自动复制。
-细节与验收清单见 `docs/02-guides/packaging.md`（坑位见 G24）。
+产物：`frontend/src-tauri/target/release/xifeng.exe` 与
+`frontend/src-tauri/target/release/bundle/nsis/Xifeng_0.1.0_x64-setup.exe`。
+慢的是 Rust 编译，不是 Python。`packaging/build.py`（PyInstaller onedir）保留，
+只用于单独交付 Python 运行时；模型不进安装包（D15）。
+细节与发版见 `docs/02-guides/packaging.md`（坑位 G24/G37/G38）。
 
 ## 延迟基准
 
@@ -153,15 +150,18 @@ Tk 窗口能否收到按键（判据）、以及按住 Ctrl 的真实时长。
 |---|---|
 | `xifeng/trace.py` | Trace 结构、JSONL 落盘、分位数 |
 | `xifeng/postprocess.py` | 幻觉过滤 / 语气词 / 归一化（Rust 侧的行为基准） |
-| `xifeng/vad.py` | 能量 VAD 替身，验证切分/合并/padding（M1 换 Silero） |
+| `xifeng/vad.py` | 能量 VAD 基准实现（壳侧用 Rust `ime-vad` + Silero，parity 测试锁死） |
 | `xifeng/asr.py` | ASR 适配层：mock / sherpa / auto |
-| `xifeng/hotkey.py` | 全局 PTT：低级键盘钩子（兜底轮询）+ 误触保护 |
+| `xifeng/hotkey.py` | 源码调试用的全局 PTT（正式触发在壳里） |
 | `key_diag.py` | 按键链路诊断：环境/钩子两种线程模型/Tk 判据 |
 | `xifeng/inject.py` | 焦点快照 + SendInput(UNICODE) + 剪贴板兜底（`auto`） |
-| `xifeng/store.py` | SQLite：历史 / 统计 / 术语表 / 设置（G25） |
-| `xifeng/glossary.py` | 术语替换 + 重启复读折叠（纯字符串） |
+| `xifeng/store.py` | SQLite：历史 / 统计 / 设置（G25） |
 | `xifeng/paths.py` | 模型与数据目录解析（源码/冻结两套，G24） |
-| `packaging/build.py` | PyInstaller 打包脚本（onedir，产物落仓库外） |
+| `xifeng/ipc.py` | 壳 ↔ Python 的 NDJSON 方法表 |
+| `xifeng/webgui.py` | Web 调试界面 + HTTP API（更新检查在这里） |
+| `packaging/build_core.py` | sidecar 打包（产物进 `src-tauri/resources/core`） |
+| `packaging/build.py` | PyInstaller 打包（仅单独交付 Python 运行时） |
+| `frontend/` | React 五页 + `src-tauri`（Rust 壳） |
 | `xifeng/pipeline.py` | 串联 + 打点 |
 | `xifeng/audio.py` | WAV 读写、合成音频 |
 | `run_spike.py` | 手动跑一次 |
@@ -173,12 +173,12 @@ Tk 窗口能否收到按键（判据）、以及按住 Ctrl 的真实时长。
 > `inject_smoke.py` 要抢前台，MUST 用目录外的 Medium 解释器跑；Low 进程会一律被拒（G14）。
 > 请在自己的终端执行 `uv run python inject_smoke.py`，期望 `5/5 通过`。
 
-## 与正式实现的差异（都是有意的）
+## 壳与 Python 的分工
 
-| 差异 | spike 做法 | 正式要求 |
+| 能力 | 壳（Rust） | Python |
 |---|---|---|
-| 热键 | 回车/固定秒数/Ctrl 长按 | rdev 全局热键（Ctrl 长按，Esc 取消） |
-| 音频回调 | `list.append`（会分配） | 预分配环形缓冲，回调内禁止分配/加锁 |
-| VAD | 能量阈值 | Silero VAD v5（Rust ort，30ms 块） |
-| 纠错 | 无 | L0 规则 + L1 LLM（M2） |
-| 存储 | SQLite（历史/术语/设置） | 同左 |
+| 热键 + 组合键观察窗 | `WH_KEYBOARD_LL` | `hotkey.py`（仅源码调试） |
+| 采集 | cpal，按需开流 | sounddevice（`--ptt` 调试回路） |
+| VAD / 后处理 | `ime-vad` / `ime-post` | `vad.py` / `postprocess.py`（基准） |
+| 注入 | SendInput | `inject.py`（同一套语义） |
+| ASR / 纠错 | — | SenseVoice / Qwen2.5-0.5B |

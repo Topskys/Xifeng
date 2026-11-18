@@ -267,6 +267,25 @@ set EXE=%LOCALAPPDATA%\Xifeng-build\dist\Xifeng\Xifeng.exe
 > 此时钩子不会把路径改到新的默认值。要换位置就先卸载、删掉这个键（或安装时手选目录）
 > 再装。
 
+### 安装版验收清单（2026-11-18 在 D 盘落点上实跑）
+
+静默安装后按顺序核对，缺一项就不算装好：
+
+| 检查 | 期望 |
+|---|---|
+| 安装目录 | 只有 `xifeng.exe` / `core/` / `uninstall.exe` |
+| 卸载项 | `HKCU\...\Uninstall\Xifeng` 的 `InstallLocation` = 实际目录 |
+| 快捷方式 | 指向安装目录的 `xifeng.exe` |
+| 用户数据 | 仍在 `%LOCALAPPDATA%\Xifeng`（`xifeng.db` / `models/` / `xifeng.log`），**没被搬** |
+| sidecar | `py_call bootstrap` 返回 `version`、模型 `ready:true`；`stats` 能看到旧历史 |
+| 更新检查 | `py_call check_update` 返回 `update:false`（仓库 public + Release 在） |
+| 热键链路 | 人工按住右 Ctrl 说一句 → `history` 新增 `outcome=Injected` |
+
+热键那一项**只能人工实按**：合成键（`SendInput`）在没有输入桌面的会话里返回成功但
+完全无效，详见 G44。实跑一次的真实数字：hold 2351ms、`asr_end` 189ms、注入 7ms、
+松手→完成 197ms；另两次分别是空识别（`chars=0`）与纯语气词（后处理拒绝），
+都按预期不注入。
+
 ### 发版（应用内「检查更新」依赖这一步）
 
 ```bash

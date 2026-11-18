@@ -22,7 +22,7 @@
 响应（Python → Tauri），必须带同一个 `id`：
 
 ```json
-{"id": 1, "ok": true, "result": {"version": "0.1.0", ...}}
+{"id": 1, "ok": true, "result": {"version": "0.2.0", ...}}
 {"id": 1, "ok": false, "error": "数据库打开失败"}
 ```
 
@@ -55,7 +55,7 @@
 | `check_update` | — | `{latest, current, update}` 或 `{error}` |
 | `shutdown` | — | `{ok: true}`，随后进程退出 |
 
-### D16 运行时方法（2026-11-13 追加；correct/session_record 为 2026-11-14 P2 追加）
+### D16 运行时方法（2026-11-13 追加；correct/session_record 为 2026-11-14 P2 追加；set_language 为 0.2.0 追加）
 
 Rust 壳接管热键/采集/注入后（决策 D16，docs/00-process/plan.md），
 Python 核心退化为模型运行时。它们**不经过 `webgui.Api`**，
@@ -71,6 +71,7 @@ Python 核心退化为模型运行时。它们**不经过 `webgui.Api`**，
 | `asr_cancel` | `{}` | `{}`。丢弃缓冲（Esc 取消本次） |
 | `correct` | `{"text": "..."}` | `{applied, text, fixes, reason, ms}`。本地 LLM 纠错（`model_correct` 开关在壳侧判断，Python 侧总可用）；**G32 守卫在 `correction.check` 内**——`applied=false` 即拒绝，`text` 恒为原文，壳只在 `applied=true` 时采用；首调用付模型加载（失败粘性，绝不逐句重试）；持 `_load_lock` 与 ASR 解码互斥 |
 | `session_record` | Trace 字段的壳侧子集：`{outcome, chars, e2e_ms, ms_asr, ms_post, ms_inject, speech_ms, strategy, fixes, error, text, raw_text, clean_text}`（全部可省略） | `{id}`。写一条历史（mode=ptt）；`store_text` 关闭时文本不落库（开关在 `add_history` 内生效）；数据库/参数问题绝不抛出——返回 `{"id": -1}`，不影响已完成的注入 |
+| `set_language` | `{"language": "zh"}` | `{language}`。切换识别语言（zh/en/ja/ko/yue）。语言是 sherpa recognizer 的**构造参数**，改了必须**重建模型**才生效（数秒）；非法语言 → `ok=false` 显式报错（不静默忽略）。`settings_save` 带新语言时会自动调一次，用户不必手动调用 |
 
 约束：
 

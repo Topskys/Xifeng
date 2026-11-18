@@ -535,3 +535,96 @@ def test_asr_stream_stdout_is_pure_json(
     # 识别文本只允许出现在协议响应里，日志（stderr）只许出现长度
     assert "呃 今天" not in captured.err
     assert "chars=" in captured.err
+
+
+# ---------------------------------------------------------------- 语言切换
+
+
+def test_set_language_switches_and_reloads_model(store: Store, fake_asr: dict) -> None:
+    """换语言必须**重建 recognizer**（language 是 sherpa 的构造参数）。"""
+    loads: list[str] = []
+
+    def fake_load(**kw: object) -> None:
+        loads.append(str(kw.get("language")))
+
+    fake_asr.clear()
+    import xifeng.asr as asr_mod
+
+    orig_load = asr_mod.load
+    asr_mod.load = fake_load
+    try:
+        rt = AsrRuntime(autostart_warmup=False, language="zh")
+        rt.ensure_loaded()
+        assert loads == ["zh"]
+
+        rt.set_language("en")
+        assert loads == ["zh", "en"]
+        assert rt.language == "en"
+    finally:
+        asr_mod.load = orig_load
+
+
+def test_set_language_same_value_does_not_reload(store: Store, fake_asr: dict) -> None:
+    """语言没变就不该重载模型（重载要几秒，不能白付）。"""
+    loads: list[str] = []
+
+    def fake_load(**kw: object) -> None:
+        loads.append(str(kw.get("language")))
+
+    import xifeng.asr as asr_mod
+
+    orig_load = asr_mod.load
+    asr_mod.load = fake_load
+    try:
+        rt = AsrRuntime(autostart_warmup=False, language="zh")
+        rt.ensure_loaded()
+        rt.set_language("zh")
+        assert loads == ["zh"]
+    finally:
+        asr_mod.load = orig_load
+
+
+def test_set_language_rejects_unsupported(store: Store) -> None:
+    """非法语言显式报错，不静默忽略（用户点了没反应是最糟的体验）。"""
+    rt = AsrRuntime(autostart_warmup=False)
+    with pytest.raises(ValueError, match="不支持的识别语言"):
+        rt.set_language("klingon")
+    with pytest.raises(ValueError):
+        rt.set_language("")
+
+
+def test_set_language_over_ipc(store: Store, fake_asr: dict) -> None:
+    """协议层：set_language 走 IPC，返回新语言。"""
+    rt = AsrRuntime(autostart_warmup=False, language="zh")
+    _ready, res = _run(
+        store, rt,
+        {"id": 1, "method": "set_language", "params": {"language": "ja"}},
+    )
+    assert res["ok"] is True
+    assert res["result"] == {"language": "ja"}
+
+
+def test_settings_save_with_new_language_syncs_runtime(store: Store, fake_asr: dict) -> None:
+    """保存设置带新语言 → 运行时自动切（用户不必手动调 set_language）。"""
+    import xifeng.asr as asr_mod
+
+    loads: list[str] = []
+
+    def fake_load(**kw: object) -> None:
+        loads.append(str(kw.get("language")))
+
+    orig_load = asr_mod.load
+    asr_mod.load = fake_load
+    try:
+        rt = AsrRuntime(autostart_warmup=False, language="zh")
+        rt.ensure_loaded()
+        _ready, res = _run(
+            store, rt,
+            {"id": 1, "method": "settings_save", "params": {"language": "en"}},
+        )
+        assert res["ok"] is True
+        assert res["result"]["language"] == "en"
+        assert rt.language == "en"
+        assert loads == ["zh", "en"]
+    finally:
+        asr_mod.load = orig_load

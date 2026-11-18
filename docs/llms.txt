@@ -57,14 +57,32 @@
 | `apps/desktop/` | Tauri 壳（Rust）+ React 五页界面，pnpm 包 `@xifeng/desktop` |
 | `apps/desktop/src-tauri/` | Rust 壳源码：`hotkey` / `voice` / `inject` / `py`(IPC) |
 | `core/` | Python 核：ASR 与纠错推理运行时（uv 项目，入口 `run_spike.py`） |
-| `core/xifeng/` | Python 模块：`asr` / `correction` / `vad` / `postprocess` / `store` / `ipc` |
-| `core/tests/` | pytest 用例（330 个） |
+| `core/xifeng/` | Python 模块：`asr` / `correction` / `vad` / `postprocess` / `store` / `ipc` / `config` |
+| `core/tests/` | pytest 用例（346 个） |
 | `core/tools/` | 开发脚本：`build_ext.py` / `core_smoke.py` / `dev-env.cmd` |
 | `core/packaging/` | `build_core.py`（sidecar）/ `build.py`（PyInstaller 全量包） |
 | `crates/` | Rust 核心（PyO3 扩展）：`ime-post` 规则 / `ime-vad` 算法 / `ime-py` 转接 |
+| `apps/desktop/src/api/` | 前端 Python 桥：`types` / `transport` / `routes` / `client` / `labels` |
 
 > Python 核打包后叫 `Xifeng-Core.exe`，装在壳同级 `core/Xifeng-Core/`；
 > `apps/desktop/src-tauri/src/py.rs::core_dir()` 负责定位它（开发态找仓库里的 `core/`）。
+
+## 用户数据（全部在 `%LOCALAPPDATA%\Xifeng`）
+
+| 内容 | 文件 | 说明 |
+|---|---|---|
+| 设置 | `config.json` | **外置 JSON**，用户可直接手改（原子写；坏文件自动备份） |
+| 历史 / 统计 | `xifeng.db` | SQLite；音频从不落库 |
+| 日志 | `xifeng.log` | 只记长度与 outcome |
+| 模型 | `models/` | ASR 239MB + VAD + LLM；安装器默认不带，需在「模型」页下载 |
+
+## 0.2.0 新增
+
+- **设置外置 JSON**：`core/xifeng/config.py` 读写 + 旧 SQLite `settings` 表一次性迁移
+- **识别语言可切换**：zh / en / ja / ko / yue；换语言会**重建模型**（数秒），
+  经 IPC `set_language`；必须显式指定（G22：`auto` 会把普通话判成粤语）
+- **主窗口初始 1280×820**（算出来的，见 `02-guides/tauri-env.md`）
+- **「检查更新」结果改右下角 toast**（不再在页面里插一条横幅）
 
 ## 原始素材
 

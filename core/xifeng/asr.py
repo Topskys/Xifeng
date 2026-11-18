@@ -107,6 +107,13 @@ def load(
     if not tokens.exists():
         raise AsrError(f"缺少 tokens.txt: {d}")
 
+    # 换语言要重建 recognizer：先丢旧引用，让原生内存尽早回收
+    # （sherpa 的 recognizer 持原生句柄，Python GC 不一定立刻释放）。
+    old = _state.recognizer
+    _state.recognizer = None
+    if old is not None:
+        del old
+
     _state.recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
         model=str(model),
         tokens=str(tokens),

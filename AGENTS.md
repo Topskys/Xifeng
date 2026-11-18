@@ -10,7 +10,7 @@ PyInstaller 打包交付。Rust 版推迟（决策见 `docs/00-process/plan.md` 
 # Python 命令在 core/ 下执行（uv 管理环境，Python 3.11，镜像已配清华源）
 cd core
 uv sync                                  # 首次/依赖变更后
-uv run pytest                            # 单测（330 个，约 40s）
+uv run pytest                            # 单测（346 个，约 40s）
 uv run python tools/build_ext.py --release # 编译 Rust 扩展（debug 比 numpy 慢，默认用 release）
 uv run python run_spike.py --help        # 手动跑一次
 uv run python bench.py --n 20            # 输出各阶段 P50/P95（自动判环境档位）
@@ -18,6 +18,7 @@ uv run python quality_check.py --wav-dir fixtures/quality   # 复算 CER
 uv run python ptt_selftest.py            # PTT 时序自测（需 Medium 完整性）
 uv run python run_spike.py --web         # 打开 Web 主界面（五页）
 uv run python run_spike.py --tray        # 托盘常驻（默认按需开麦）
+uv run python run_spike.py --language en # 指定识别语言（默认读配置）
 
 # 打包（MUST 用仓库外的 Medium 解释器，见 docs/02-guides/packaging.md）
 %TEMP%\vi-venv\Scripts\python.exe packaging\build.py
@@ -59,10 +60,17 @@ cargo build -p ime-py --release          # 只编译扩展，不装进 venv
 - 不录音时 **禁止** 占用麦克风：默认按下热键才 `LiveMic.start()`，松开后关闭
 - 后处理（`postprocess`）规则 **禁止** 只改一边：`xifeng/postprocess.py` 是基准，
   `crates/ime-post` 是等价实现，`tests/test_postprocess_parity.py` 必须绿
-- 用户数据 MUST 落 `%LOCALAPPDATA%\Xifeng`（库 `xifeng.db`、日志 `xifeng.log`）；
-  旧 `VoiceIME` 目录只允许**一次性迁移 + 只读兜底**，禁止把新数据写回去（D21/G43）
+- 用户数据 MUST 落 `%LOCALAPPDATA%\Xifeng`（库 `xifeng.db`、日志 `xifeng.log`、
+  **配置 `config.json`**）；旧 `VoiceIME` 目录只允许**一次性迁移 + 只读兜底**，
+  禁止把新数据写回去（D21/G43）
 - 自启 MUST 只写 `HKCU\...\Run\Xifeng`，旧值 `VoiceIME` 迁移后 MUST 删除
   （否则开机跑两个实例）；环境变量用 `XIFENG_*`，旧名只读兼容
+- 设置 MUST 存 `config.json`（外置 JSON，用户要能看懂并手改）；**禁止**再写
+  SQLite `settings` 表（只读用于一次性迁移）。写配置 MUST 原子（临时文件 + replace），
+  坏文件 MUST 备份而不是让程序起不来
+- 识别语言 MUST 显式指定（zh/en/ja/ko/yue）：`auto` 会把普通话判成粤语（G22）；
+  换语言 MUST 重建 recognizer（language 是 sherpa 的构造参数），MUST 经 IPC
+  `set_language`，禁止静默忽略非法值
 
 ## 架构
 

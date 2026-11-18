@@ -45,6 +45,10 @@ MAX_SECONDS = 60
 #: 缓冲上限（帧 = i16 采样数）：60s ≈ 960000 帧，超出丢弃新数据
 MAX_FRAMES = MAX_SECONDS * SAMPLE_RATE
 
+#: 支持的识别语言（与 `settings.LANGUAGES` 同源；SenseVoice 的语种清单）。
+#: G22：auto 会把普通话判成粤语，必须显式指定。
+SUPPORTED_LANGUAGES = ("zh", "en", "ja", "ko", "yue")
+
 
 def _log(msg: str) -> None:
     """日志只走 stderr —— stdout 是 IPC 协议专用通道。"""
@@ -138,6 +142,31 @@ class AsrRuntime:
             use_itn=self.use_itn,
         )
         self._loaded = True
+
+    def set_language(self, language: str) -> dict:
+        """`set_language` params={language} → {language}：切换识别语言。
+
+        换语言必须**重建 recognizer**（sherpa 的 language 是构造参数，
+        不能热改），所以这里同步重载模型——耗时与首次加载同量级（数秒）。
+
+        非法语言显式报错（不静默忽略）：用户点了没反应是最糟的体验。
+        """
+        if not isinstance(language, str) or not language.strip():
+            raise ValueError("set_language.language 必须是字符串")
+        lang = language.strip().lower()
+        if lang not in SUPPORTED_LANGUAGES:
+            raise ValueError(
+                f"不支持的识别语言：{language}（支持：{', '.join(SUPPORTED_LANGUAGES)}）"
+            )
+        with self._load_lock:
+            if self._loaded and lang == self.language:
+                return {"language": self.language}
+            self.language = lang
+            # 重建 recognizer：先让 asr.load 释放旧的
+            self._loaded = False
+            self._load_locked()
+        _log(f"识别语言已切换为 {lang}（模型已重载）")
+        return {"language": lang}
 
     def warmup(self) -> None:
         """后台线程入口：加载 + 空跑一次，消除首包冷启动（G8）。

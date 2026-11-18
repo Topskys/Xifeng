@@ -1,11 +1,46 @@
-# 存储（SQLite）
+# 存储（SQLite 数据 + JSON 配置）
 
-Xifeng 只有两类**有结构的数据**：输入历史、设置。它们都进一个 SQLite 文件，
-用 Python 标准库 `sqlite3`（零依赖、单文件、GUI 直接读同一个库）。
+Xifeng 有两类**有结构的东西**：输入历史（数据）与用户设置（配置）。
+两者分开放（0.2.0 起）：
+
+| | 存哪 | 为什么 |
+|---|---|---|
+| 输入历史 / 统计 | SQLite `xifeng.db` | 有结构、要查询、要保留期清理；标准库 `sqlite3` 零依赖 |
+| 用户设置 | JSON `config.json` | 用户要能**看懂并手改**（改热键、改识别语言）；SQLite 表做不到 |
 
 **音频从不落库**；文本默认进历史表，可关闭（见「隐私边界」）。
 
-## 表结构
+## 用户设置：外置 JSON
+
+配置文件：`%LOCALAPPDATA%\Xifeng\config.json`（与库、日志、模型同目录）。
+纯文本 JSON，缩进 2 空格、非 ASCII 不转义，用户直接用记事本就能改：
+
+```json
+{
+  "clipboard_restore_ms": "500",
+  "hotkey": "rctrl",
+  "language": "zh",
+  "model_correct": "0",
+  "schema_version": 1,
+  "threads": "8"
+}
+```
+
+要点：
+
+- **值都是字符串**（`"0"` / `"1"` 表示布尔），沿用旧 SQLite 键值表的编码，
+  免得迁移时类型转换出岔子。读的时候非法值逐项退回默认。
+- **原子写**：先写同目录临时文件，再 `os.replace` 覆盖——写到一半断电不会留半个 JSON。
+- **坏文件不致命**：JSON 非法或不是对象时，改名备份成 `config.json.N.bad`，
+  用默认值重建，程序照常启动。一个手滑不该让输入法打不开。
+- **旧库迁移**（一次性、幂等）：JSON 不存在而旧 SQLite `settings` 表有值时，
+  搬进 JSON 并写 `migrated_from: "sqlite"` 标记。JSON 已存在则**以 JSON 为准**
+  ——用户手改过的值不该被旧库覆盖。
+
+实现见 `core/xifeng/config.py`（读写 + 迁移）与 `core/xifeng/settings.py`
+（校验 + 类型转换）。
+
+## 历史：SQLite 表结构
 
 ```sql
 CREATE TABLE history (          -- 一次输入一条，只记耗时/长度/结果
@@ -32,7 +67,7 @@ CREATE TABLE terms (            -- 旧版规则纠错遗留；程序已不再读
     created TEXT NOT NULL
 );
 
-CREATE TABLE settings (         -- 键值对，CLI 与 GUI 共用
+CREATE TABLE settings (         -- 旧版设置表；0.2.0 起不再写（配置已外置成 JSON）
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
@@ -40,6 +75,7 @@ CREATE TABLE settings (         -- 键值对，CLI 与 GUI 共用
 
 > v0.23 起纠错改由本地模型（`correction.py`，G32）完成，新库不再建 `terms` 表，
 > 旧库里的表也不会被删（用户数据不动），只是没有任何代码读写它。
+> `settings` 表同理：只读用于一次性迁移，之后不再写。
 
 `history` 上只有 `ts` 索引（查询都是"最近 N 条"和"某时间段聚合"）。
 
@@ -61,15 +97,17 @@ CREATE TABLE settings (         -- 键值对，CLI 与 GUI 共用
 | 顺序 | 条件 | 路径 |
 |---|---|---|
 | 1 | 环境变量 `IME_DB` | 指定整个文件路径 |
-| 2 | 环境变量 `IME_DATA_DIR` | `<该目录>/xifeng.db` |
-| 3 | `%LOCALAPPDATA%` 可写（源码与冻结形态都走这条） | `%LOCALAPPDATA%\Xifeng\xifeng.db` |
+| 2 | 环境变量 `IME_DATA_DIR` | `<该目录>/xifeng.db` 与 `<该目录>/config.json` |
+| 3 | `%LOCALAPPDATA%` 可写（源码与冻结形态都走这条） | `%LOCALAPPDATA%\Xifeng\{xifeng.db,config.json}` |
 | 4 | 冻结形态且 `%LOCALAPPDATA%` 不可写 | `<exe 同级>/data/xifeng.db` |
-| 5 | 源码形态且 `%LOCALAPPDATA%` 不可写（Low 进程） | `<python>/.data/xifeng.db` |
+| 5 | 源码形态且 `%LOCALAPPDATA%` 不可写（Low 进程） | `<core>/.data/xifeng.db` |
 
 为什么优先 `%LOCALAPPDATA%` 而不是 exe 同级：装到 `Program Files` 时 exe 目录不可写；
 而且**升级会整目录替换**，历史会跟着丢。第 4/5 条只是保底（便携版、Low 进程），
 第 5 条是本工作区的常态：仓库目录带 Low 标签，写 `%LOCALAPPDATA%` 会被
 no-write-up 拒绝（G25），因此先探测可写性再决定。
+
+配置文件的目录**跟随** `data_dir()`：Low 进程下落到 `<core>/.data/config.json`。
 
 ## 隐私边界
 

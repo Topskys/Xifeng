@@ -20,12 +20,16 @@
 
 ## 安装
 
-1. 从 [Releases](https://github.com/Topskys/Xifeng/releases) 下载 `Xifeng_0.1.0_x64-setup.exe`。
+1. 从 [Releases](https://github.com/Topskys/Xifeng/releases) 下载 `Xifeng_0.2.0_x64-setup.exe`。
 2. 安装到 `D:\Program Files (x86)\xifeng`（没有 D 盘时回退 `%LOCALAPPDATA%\Programs\Xifeng`；安装器**默认不带模型**，安装包约 35 MB）。
-3. 启动后到「模型」页下载 ASR / VAD / 纠错模型（落到用户数据目录，卸载不会删历史）。
+3. 启动后到「模型」页下载 ASR / VAD 模型（落到用户数据目录，卸载不会删历史）。
 4. 需要 WebView2 运行时（Windows 10/11 一般已自带）。
 
-想免安装就把 `Xifeng_0.1.0_x64-portable.zip` 解压到任意目录（同样需要先有模型）。
+> **新电脑不用装任何语言环境**：不需要 Python / Node / Rust / Visual Studio。
+> 安装包自带整套 Python 运行时（sidecar `Xifeng-Core.exe` 内嵌 `python311.dll`
+> 与全部依赖）。唯一要单独下的是**模型**（约 239 MB，装完在「模型」页点一下）。
+
+想免安装就把 `Xifeng_0.2.0_x64-portable.zip` 解压到任意目录（同样需要先有模型）。
 
 ## 使用
 
@@ -89,7 +93,7 @@ uv run python tools/build_ext.py --release
 # 内嵌 sidecar（产物：apps/desktop/src-tauri/resources/core/Xifeng-Core）
 uv run python packaging/build_core.py --clean
 
-# 壳 + 安装器（产物：target/release/xifeng.exe、bundle/nsis/Xifeng_0.1.0_x64-setup.exe）
+# 壳 + 安装器（产物：target/release/xifeng.exe、bundle/nsis/Xifeng_0.2.0_x64-setup.exe）
 # 回仓库根执行（pnpm workspace 根）
 cd ..
 pnpm install

@@ -42,12 +42,22 @@
 | `correction.py` | 本地 Qwen2.5-0.5B + 守卫（默认关，G32） | 输出必须先过 `check` |
 | `vad.py` | 能量/Silero VAD 与首尾裁剪，按**整句**调用一次 | 基准实现；热点可走 `xifeng_rs` |
 | `postprocess.py` | 幻觉/语气词/归一化，纯 Python 基准 | 与 `crates/ime-post` 逐字节等价（parity 测试） |
-| `store.py` | SQLite：历史 / 统计 / 设置（G25） | 库在 `%LOCALAPPDATA%\Xifeng\xifeng.db` |
+| `store.py` | SQLite：历史 / 统计（G25） | 库在 `%LOCALAPPDATA%\Xifeng\xifeng.db` |
+| `config.py` | 外置 JSON 配置读写 + 旧 SQLite 设置迁移 | 文件在 `%LOCALAPPDATA%\Xifeng\config.json` |
 | `paths.py` | 数据/模型目录解析，旧 `VoiceIME` 迁移（D21/G43） | `XIFENG_*` 环境变量 |
 | `webgui.py` | HTTP 调试界面 + `check_update`（GitHub latest release） | 只绑 `127.0.0.1` |
 | `settings.py` / `autostart.py` / `applog.py` | 设置校验、源码调试用自启、日志 | 壳侧各有对应实现 |
 
 `--gui`（tkinter 四页）与 `--tray` 仍可用，仅作源码调试；安装版不经过它们。
+
+### 配置与语言（0.2.0）
+
+- **设置外置成 JSON**：`config.py` 负责原子读写、坏文件备份、旧库迁移；
+  `settings.py` 只管校验与类型转换。用户在配置页就能看到文件路径并直接编辑。
+- **识别语言可切换**：`settings.language` ∈ {zh, en, ja, ko, yue}。
+  语言是 sherpa recognizer 的**构造参数**，改了必须重建模型（数秒）——
+  `settings_save` 会自动调一次 IPC `set_language` 完成重建，用户不必手动操作。
+  必须显式指定：G22 记录过 `auto` 会把普通话判成粤语（CER 57% → 0%）。
 
 ## 线程模型
 

@@ -55,6 +55,7 @@ RUNTIME_METHODS: dict[str, str] = {
     "asr_cancel": "cancel",
     "correct": "correct",
     "session_record": "session_record",
+    "set_language": "set_language",
 }
 
 #: 参数是一整个 JSON 对象的方法（`Api` 里签名就是 `body: dict`）
@@ -166,14 +167,38 @@ def _dispatch(api: Api, runtime: AsrRuntime, method: str, params: object) -> Any
     if method in _NO_PARAM:
         if _as_dict(params, method):
             raise ValueError(f"{method} 不接受参数")
-        return fn()
+        result = fn()
+        if method == "settings_reset":
+            _sync_language(api, runtime)
+        return result
     if method in _BODY_PARAM:
-        return fn(_as_dict(params, method))
+        result = fn(_as_dict(params, method))
+        if method == "settings_save":
+            _sync_language(api, runtime)
+        return result
     args = _keyword_args(fn, method, params)
     for key in ("period", "offset", "limit", "id"):
         if key in args:
             args[key] = _period(args[key]) if key == "period" else _as_int(args[key], method, key)
     return fn(**args)
+
+
+def _sync_language(api: Api, runtime: AsrRuntime) -> None:
+    """设置保存后把识别语言同步给运行时。
+
+    语言是 recognizer 的**构造参数**，改了必须重建模型才能生效（数秒）。
+    这里在同一次 IPC 调用里做完，用户点「保存」就立刻生效，不必重启。
+
+    重建失败（模型缺失等）不抛给前端：设置已经存进 JSON 了，
+    运行时退回旧语言继续用——抛错会让前端误以为"保存失败"。
+    """
+    lang = getattr(api.settings, "language", "")
+    if not lang or lang == runtime.language:
+        return
+    try:
+        runtime.set_language(lang)
+    except Exception as exc:  # noqa: BLE001 - 换语言失败不该让保存失败
+        _log(f"⚠ 识别语言切换失败（设置已保存，下次会话生效）：{type(exc).__name__}: {exc}")
 
 
 def _error_text(exc: BaseException) -> str:

@@ -1,7 +1,7 @@
 import { FolderOpen, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 
-import { api, HOTKEY_LABEL, type Bootstrap, type Settings } from "@/api"
+import { api, HOTKEY_LABEL, LANGUAGE_LABEL, type Bootstrap, type Settings } from "@/api"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { SimpleSelect } from "@/components/simple-select"
@@ -159,6 +159,16 @@ export function ConfigPage({
           <Row title="录音指示浮窗" desc="按住说话时屏幕下方显示录音状态与音量">
             <Switch checked={s.show_popup} onCheckedChange={(v) => patch({ show_popup: v })} />
           </Row>
+          <Row
+            title="识别语言"
+            desc="语音转文字的目标语言；切换后模型重载（约几秒），保存即生效"
+          >
+            <SimpleSelect
+              options={sel(LANGUAGE_LABEL)}
+              value={s.language ?? "zh"}
+              onValueChange={(v) => patch({ language: v })}
+            />
+          </Row>
           <Row title="ASR 推理线程" desc="8 核 CPU 实测 8 线程最快">
             <SimpleSelect
               options={sel({ "1": "1", "2": "2", "4": "4", "8": "8", "16": "16", "32": "32" })}
@@ -287,6 +297,14 @@ export function ConfigPage({
                 <Trash2 /> 清理 30 天前
               </Button>
             </div>
+          </Row>
+          <Row
+            title="配置文件"
+            desc={`设置存成 JSON，可直接编辑：${boot.configPath}`}
+          >
+            <Button size="sm" variant="outline" onClick={() => api.open("__config__")}>
+              <FolderOpen /> 打开
+            </Button>
           </Row>
         </Group>
       </div>

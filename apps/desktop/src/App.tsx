@@ -189,7 +189,7 @@ export default function App() {
         {page === "config" && (
           <ConfigPage boot={boot} showToast={showToast} refreshBoot={setBoot} applyTheme={applyTheme} />
         )}
-        {page === "about" && <AboutPage boot={boot} />}
+        {page === "about" && <AboutPage boot={boot} showToast={showToast} />}
       </main>
       </div>
 

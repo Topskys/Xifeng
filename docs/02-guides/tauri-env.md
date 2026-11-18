@@ -136,3 +136,24 @@ pnpm tauri build
 `Couldn't recognize the current folder as a Tauri project`。
 同时根 `Cargo.toml` 的 `workspace.exclude` 要含 `apps/desktop/src-tauri`，
 否则 `cargo metadata` 会报 "current package believes it's in a workspace when it's not"。
+
+## 主窗口初始尺寸（1280×820）
+
+`tauri.conf.json` 的 `app.windows[0]` 里定死 `width: 1280` / `height: 820`
+（**不是**动态计算——那是另一回事，见下）。这个值是算出来的，不是拍脑袋：
+
+**宽度下限 1136** = 侧栏 192（`w-48`）+ 页面左右留白 48（`p-6`）+ 内容最大宽 896
+（`max-w-4xl`）。低于这个数，内容区会被挤窄、表格换行。
+
+**宽度取 1280**：比下限宽 144px 余量，`max-w-4xl` 的内容能居中留白；
+在 1440 宽的屏上左右各留 80px，不顶边。
+
+**高度取 820**：本机工作区 1440×**912**（960 屏减去 48px 任务栏）。
+820 留下 92px 余量（上下各 46），**无边框窗口的顶条（`h-10` = 40px）
+不会压到任务栏**——这一点是硬要求：顶条是自绘的标题栏，压到任务栏上
+拖拽和最小化按钮都会点不到。
+
+> 用户估的 1328×887 在本机**过高**：887 距工作区上沿只剩 25px，
+> 顶条会紧贴任务栏。所以取 1280×820。
+> 1366×768 的笔记本工作区只有 728 高，Windows 会自动裁剪到能放下的尺寸，
+> 不会出界（`center: true` 保持居中）。

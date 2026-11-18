@@ -24,7 +24,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__, autostart, correction, paths
+from . import __version__, autostart, config, correction, paths
 from . import settings as user_settings
 from .store import Store
 
@@ -212,6 +212,7 @@ class Api:
         return {
             "version": __version__,
             "dataDir": str(self.store.path.parent),
+            "configPath": str(config.config_path()),
             "settings": self.settings.__dict__ | {},
             "models": _discover(self.store),
             "correction": {
@@ -320,12 +321,15 @@ class Api:
 
     def settings_save(self, body: dict) -> dict:
         self.settings = user_settings.update(self.settings, **body)
-        user_settings.save(self.store, self.settings)
+        if not user_settings.save(self.store, self.settings):
+            # 写不动（目录只读/被占用）时**显式报错**，不假装存上了
+            raise ValueError(f"配置文件写入失败：{config.config_path()}")
         return self._settings()
 
     def settings_reset(self) -> dict:
         self.settings = user_settings.update(user_settings.DEFAULTS)
-        user_settings.save(self.store, self.settings)
+        if not user_settings.save(self.store, self.settings):
+            raise ValueError(f"配置文件写入失败：{config.config_path()}")
         return self._settings()
 
     def theme(self, body: dict) -> dict:
@@ -338,7 +342,6 @@ class Api:
         self.settings = user_settings.update(self.settings, model_dir=str(path))
         user_settings.save(self.store, self.settings)
         return _discover(self.store)
-
     def autostart(self, body: dict) -> dict:
         try:
             if body.get("enabled"):
@@ -407,7 +410,13 @@ class Api:
 
     def open(self, body: dict) -> dict:
         raw = body.get("path", "")
-        target = self.store.path.parent if raw == "__data__" else Path(raw)
+        if raw == "__data__":
+            target = self.store.path.parent
+        elif raw == "__config__":
+            # 打开配置文件所在目录（文件可能还不存在——首次启动才生成）
+            target = config.config_path().parent
+        else:
+            target = Path(raw)
         if sys.platform == "win32":
             os.startfile(str(target))  # noqa: S606
         return {"ok": True}

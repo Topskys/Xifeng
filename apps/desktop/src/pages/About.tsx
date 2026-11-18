@@ -7,24 +7,28 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/pages/Stats"
 
-export function AboutPage({ boot }: { boot: Bootstrap }) {
+export function AboutPage({
+  boot,
+  showToast,
+}: {
+  boot: Bootstrap
+  showToast: (text: string, ok?: boolean) => void
+}) {
   const [checking, setChecking] = useState(false)
-  const [result, setResult] = useState<string | null>(null)
 
   const check = async () => {
     setChecking(true)
-    setResult(null)
     try {
       const r = await api.checkUpdate()
       if ("error" in r) {
-        setResult(`检查失败：${r.error}`)
+        showToast(`检查更新失败：${r.error}`, false)
       } else if (r.update) {
-        setResult(`发现新版本 v${r.latest}（当前 v${r.current}）`)
+        showToast(`发现新版本 v${r.latest}（当前 v${r.current}）`)
       } else {
-        setResult(`已是最新版本 v${r.current}`)
+        showToast(`已是最新版本 v${r.current}`)
       }
     } catch (e) {
-      setResult(`检查失败：${String(e)}`)
+      showToast(`检查更新失败：${String(e)}`, false)
     } finally {
       setChecking(false)
     }
@@ -60,12 +64,6 @@ export function AboutPage({ boot }: { boot: Bootstrap }) {
           </Button>
         </div>
       </Card>
-
-      {result && (
-        <div className="mt-3 rounded-xl border border-border bg-card px-5 py-3 text-sm">
-          {result}
-        </div>
-      )}
 
       <Card className="mt-3 rounded-xl border-border p-5">
         <div className="text-sm font-semibold">简介</div>

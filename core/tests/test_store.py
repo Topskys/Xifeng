@@ -155,17 +155,38 @@ def test_legacy_hotkey_value_normalized_to_one_side(store: Store) -> None:
 
     左右互斥后如果继续两侧都触发，用户设了哪一边都形同虚设；
     归一在 settings.load 做，老库不用重写。
-    """
-    from xifeng import settings
 
-    store.set_setting("hotkey", "ctrl")
-    assert settings.load(store).hotkey == "rctrl"
-    store.set_setting("hotkey", "shift")
-    assert settings.load(store).hotkey == "lshift"
+    设置现在外置成 JSON（`config.json`），老库的值由
+    `config.migrate_from_store` 一次性搬进 JSON——这里直接测 JSON 里的旧值。
+    """
+    from xifeng import config, settings
+
+    for legacy, expected in (("ctrl", "rctrl"), ("shift", "lshift"), ("lctrl", "lctrl")):
+        config.save_raw({"hotkey": legacy})
+        assert settings.load(None).hotkey == expected
+
+    config.save_raw({"hotkey": "bogus"})
+    assert settings.load(None).hotkey == settings.DEFAULTS.hotkey == "rctrl"
+
+
+def test_legacy_settings_migrate_from_sqlite_to_json(store: Store) -> None:
+    """旧 SQLite `settings` 表的值要一次性搬进 JSON，之后只读 JSON。"""
+    from xifeng import config, settings
+
     store.set_setting("hotkey", "lctrl")
+    store.set_setting("language", "en")
+
+    assert config.migrate_from_store(store) is True
+    raw, _note = config.load_raw()
+    assert raw["hotkey"] == "lctrl"
+    assert raw["language"] == "en"
+
+    # 幂等：JSON 已存在就不再搬
+    assert config.migrate_from_store(store) is False
+
+    # JSON 优先于旧库：用户手改过的值不被旧库覆盖
+    store.set_setting("hotkey", "rshift")
     assert settings.load(store).hotkey == "lctrl"
-    store.set_setting("hotkey", "bogus")
-    assert settings.load(store).hotkey == settings.DEFAULTS.hotkey == "rctrl"
 
 
 # ---------------------------------------------------------------- 默认路径

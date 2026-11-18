@@ -288,12 +288,18 @@ set EXE=%LOCALAPPDATA%\Xifeng-build\dist\Xifeng\Xifeng.exe
 
 ### 发版（应用内「检查更新」依赖这一步）
 
+版本号在**四处**必须一致：`apps/desktop/src-tauri/tauri.conf.json`、
+根 `Cargo.toml` + `apps/desktop/src-tauri/Cargo.toml`、`package.json`、
+`core/pyproject.toml` + `core/xifeng/__init__.py`。改一处要改全部，否则
+「关于」页显示的版本与应用内检查更新会比对错。
+
 ```bash
-git tag -a v0.1.0 -m "Xifeng 0.1.0" && git push origin v0.1.0
+# 以 0.2.0 为例；发版时把 X.Y.Z 换成目标版本
+git tag -a v0.2.0 -m "Xifeng 0.2.0" && git push origin v0.2.0
 ```
 
-然后在 GitHub 建 Release（tag 选 `v0.1.0`），附两个资产：
-`Xifeng_0.1.0_x64-setup.exe` 与 `Xifeng_0.1.0_x64-portable.zip`（`tar -a -c -f` 打便携目录）。
+然后在 GitHub 建 Release（tag 选 `v0.2.0`），附两个资产：
+`Xifeng_0.2.0_x64-setup.exe` 与 `Xifeng_0.2.0_x64-portable.zip`（`tar -a -c -f` 打便携目录）。
 
 应用内 `check_update` 读 `api.github.com/repos/Topskys/Xifeng/releases/latest`：
 - 仓库 MUST 是 **public**（匿名请求，private 一律 404）

@@ -8,12 +8,38 @@
 
 ## A. 用安装包（不需要开发环境）
 
-1. 从 [Releases](https://github.com/Topskys/Xifeng/releases) 下载 `Xifeng_0.1.0_x64-setup.exe`
+1. 从 [Releases](https://github.com/Topskys/Xifeng/releases) 下载 `Xifeng_0.2.0_x64-setup.exe`
 2. 安装到 `D:\Program Files (x86)\xifeng`（没有 D 盘时回退 `%LOCALAPPDATA%\Programs\Xifeng`；安装器**默认不带模型**）
 3. 启动 → 「模型」页下载 ASR / VAD（约 239 MB，落到 `%LOCALAPPDATA%\Xifeng\models`）
 4. 打开记事本，**按住右 Ctrl** 说一句，松开
 
 托盘图标可打开主界面或退出；数据在 `%LOCALAPPDATA%\Xifeng`，卸载不删。
+
+### 新电脑要装什么？什么都不用装
+
+**除了模型，什么都不用装**——不需要 Python、不需要 Node、不需要 Rust、
+不需要 Visual Studio、不需要 WebView2（Win10/11 一般已自带）。
+
+原因是安装包里已经带了整套 Python 运行时：sidecar `Xifeng-Core.exe` 是
+PyInstaller 打的 onedir，自带 `python311.dll` 解释器与 `_internal/` 里的
+全部依赖（numpy / sherpa-onnx / llama_cpp / PySide 等）。壳（`xifeng.exe`）
+本身是 Rust 静态编译的 exe。
+
+安装包 34.8 MB 就是「壳 + sidecar + 依赖」；唯一要单独下的是**模型**
+（约 239 MB，装完在「模型」页点一下，或手动放进
+`%LOCALAPPDATA%\Xifeng\models\asr\sensevoice-small-int8\`）。
+
+> 想离线开箱包：`build_core.py --with-models` 会把模型一起打进安装包。
+
+### 装完之后东西在哪
+
+| 内容 | 位置 | 卸载会删吗 |
+|---|---|---|
+| 程序 | `D:\Program Files (x86)\xifeng` | ✅ 卸载器删 |
+| 配置 | `%LOCALAPPDATA%\Xifeng\config.json` | ❌ 保留（可手改） |
+| 历史 / 统计 | `%LOCALAPPDATA%\Xifeng\xifeng.db` | ❌ 保留 |
+| 日志 | `%LOCALAPPDATA%\Xifeng\xifeng.log` | ❌ 保留 |
+| 模型 | `%LOCALAPPDATA%\Xifeng\models\` | ❌ 保留（约 239MB） |
 
 ## B. 源码路线（开发者）
 
@@ -34,7 +60,7 @@
 ### 1. 装环境（约 20 秒）
 
 ```bash
-cd Xifeng/python
+cd Xifeng/core
 uv sync
 ```
 
@@ -46,7 +72,7 @@ uv sync
 uv run pytest
 ```
 
-期望：`330 passed`（含 Rust/Python parity，需先 `uv sync`）。
+期望：`346 passed`（含 Rust/Python parity，需先 `uv sync`）。
 
 ### 3. 先看文本清理（不需要模型、不打字）
 

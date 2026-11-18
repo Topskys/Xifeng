@@ -71,6 +71,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--backend", default="auto", choices=["auto", "mock", "sherpa"])
     p.add_argument("--model-dir", default=None, help="SenseVoice 模型目录（默认 IME_MODELS_DIR 或 models/asr/...）")
     p.add_argument("--threads", type=int, default=8, help="ONNX 线程数（8 核实测 8 最快）")
+    p.add_argument("--language", default=None, choices=user_settings.LANGUAGES,
+                   help="ASR 识别语言（默认用配置里的值；G22：auto 会把普通话判成粤语，必须显式指定）")
     p.add_argument("--download-source", default=None, choices=user_settings.DOWNLOAD_SOURCES,
                    help="模型下载源（GUI 配置页同步，不填则用数据库里的值）")
     p.add_argument("--no-inject", action="store_true", help="只处理不注入（安全模式）")
@@ -127,6 +129,7 @@ _SETTING_FLAGS = {
     "--model-dir": "model_dir",
     "--threads": "threads",
     "--download-source": "download_source",
+    "--language": "language",
 }
 
 
@@ -171,6 +174,8 @@ def apply_user_settings(
         args.threads = cfg.threads
     if args.download_source is None and cfg.download_source:
         args.download_source = cfg.download_source
+    if args.language is None:
+        args.language = cfg.language
     return cfg
 
 
@@ -206,6 +211,7 @@ def ipc_mode(args: argparse.Namespace, argv: list[str] | None = None) -> int:
             backend=args.backend,
             model_dir=args.model_dir,
             threads=args.threads,
+            language=args.language or cfg.language,
             use_vad=args.vad,
             trim_silence=args.trim,
             model_correct=cfg.model_correct,
@@ -631,6 +637,7 @@ def main(argv: list[str] | None = None) -> int:
                 backend=args.backend,
                 model_dir=args.model_dir,
                 threads=args.threads,
+                language=args.language or user_cfg.language,
                 download_source=args.download_source,
             )
         except asr.AsrError as exc:

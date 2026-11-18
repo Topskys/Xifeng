@@ -1096,3 +1096,35 @@ stderr 默认是 gbk；壳按 UTF-8 逐行读，第一行中文就 `stream did n
 
 **教训**：改名要先列"用户数据契约清单"（磁盘/注册表/进程名/环境变量/安装器/日志编码），
 再动字符串；只改显示名的替换是假改名。
+
+
+## G44 用合成按键验证热键：在没有输入桌面的会话里必然失败
+
+现象（2026-11-18 实测，验证 D 盘安装版的热键链路）：
+
+- 外部 `SendInput` 右 Ctrl（`0xA3`）按下/松开**都返回 1（成功）**，但壳的 stderr
+  一行 `[voice]` 都没有（连「组合键」「误触」这种分支日志都不打）
+- 同一进程自建 `WH_KEYBOARD_LL` 钩子，合成键同样 0 事件
+- `GetAsyncKeyState(VK_RCONTROL)` 全程 `0x0000`
+- 连 `SetCursorPos` 都不动光标 —— **这个 API 根本不过输入队列**
+
+四条一起说明：**调用进程不在当前输入桌面上**（桌面被锁 / 由更高完整性进程持有），
+整条注入通道是关的。此时"热键不触发"不是回归，也**不能**据此下结论。
+
+排错顺序：
+
+1. 看壳有没有打 `[voice] ⚠ 键盘钩子未就绪，按键采集不可用`。这行只在
+   `hook.active()==false` 时打（`voice.rs` 的 `run()` 里），**没打就说明钩子已装上**
+2. 先测注入通道本身：`SetCursorPos(+1,+1)` 之后 `GetCursorPos` 没变 → 环境不支持合成输入，
+   直接转人工实按（或换到真实交互桌面 / Medium 进程再试）
+3. 人工验证口径：按住右 Ctrl 说一句 → `%LOCALAPPDATA%\Xifeng\xifeng.db` 的 `history`
+   多一行 `outcome=Injected`，壳的 stderr 出现 `[voice] 按住 …ms` 之类的会话日志
+
+写探针时另外两个低级钩子的坑：
+
+- 回调**只投递到安装钩子的那个线程**。在另一个线程 `PeekMessage` 抽消息等于没抽：
+  事件数恒为 0，非常容易误判成"合成键对 LL 钩子不可见"。必须在安装线程里抽消息，
+  发送动作放别的线程
+- `SetWindowsHookExW(WH_KEYBOARD_LL, proc, GetModuleHandleW(NULL), 0)` 在 Python 里
+  返回 0 且 `GetLastError()=126`（`ERROR_MOD_NOT_FOUND`）；LL 钩子必须传 `hMod=NULL`
+  （Rust 侧 `hotkey.rs` 传的正是 `None`，所以壳这边没这个毛病）

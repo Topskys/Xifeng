@@ -32,12 +32,33 @@ function pageFromHash(): PageKey {
   return (PAGE_KEYS as string[]).includes(h) ? (h as PageKey) : "stats"
 }
 
+/** 是不是浮窗模式（`?window=overlay`）。 */
+function isOverlayMode(): boolean {
+  return new URLSearchParams(window.location.search).get("window") === "overlay"
+}
+
+/**
+ * 顶层分发：浮窗页与主界面是**两套完全独立的 UI**（不同 webview 实例、
+ * 不同路由形态），没有共享状态。
+ *
+ * 为什么拆成两个组件而不是在 `App` 里提前 return：
+ * 提前 return 会让后面的 Hook 变成**条件调用**——同一个组件这次渲染调 3 个
+ * Hook、下次渲染调 0 个，Hook 顺序变了，React 内部状态就错位
+ * （`react-hooks/rules-of-hooks` 报的正是这个）。
+ *
+ * 拆开后：`App` 自身一个 Hook 都没有，`MainShell` 里的 Hook 全部无条件执行，
+ * 顺序永远一致——规则与运行时行为都对上了。
+ */
 export default function App() {
   // 浮窗模式：独立精简页（录音提示条），无顶条/侧栏，背景透明
-  if (new URLSearchParams(window.location.search).get("window") === "overlay") {
+  if (isOverlayMode()) {
     return <OverlayPage />
   }
+  return <MainShell />
+}
 
+/** 主界面（侧栏 + 内容区 + toast）。所有 Hook 在这里无条件调用。 */
+function MainShell() {
   const [boot, setBoot] = useState<Bootstrap | null>(null)
   const [page, setPage] = useState<PageKey>(pageFromHash)
   const [toast, setToast] = useState<Toast | null>(null)

@@ -48,7 +48,7 @@ export function ModelsPage({
     try {
       const r = await api.modelsFind(name, names);
       if (r.matches?.length) {
-        await use(r.matches[0]);
+        await switchModel(r.matches[0]);
         showToast(`已添加并切换模型：${name}`);
       } else {
         showToast(`未在本机找到 ${name} 的模型目录（已搜索模型目录与用户目录）`, false);
@@ -58,7 +58,10 @@ export function ModelsPage({
     }
   };
 
-  const use = async (path: string) => {
+  // 名字不能叫 `use`：React 约定 `use*` 前缀是 Hook，
+  // oxlint 的 rules-of-hooks 会把 `use(...)` 当成 Hook 调用来检查（报错）。
+  // 这只是个普通异步函数，改名 `switchModel` 语义也更准。
+  const switchModel = async (path: string) => {
     try {
       await api.useModel(path);
       refresh();
@@ -124,7 +127,7 @@ export function ModelsPage({
                   <Button
                     size="sm"
                     variant="default"
-                    onClick={() => use(m.path)}
+                    onClick={() => switchModel(m.path)}
                   >
                     设为当前
                   </Button>

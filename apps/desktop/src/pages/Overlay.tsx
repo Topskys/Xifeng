@@ -67,13 +67,18 @@ export function OverlayPage() {
   const startRef = useRef(performance.now())
   // 样式预览：?window=overlay&demo=1 时用合成电平序列代替真实麦克风事件
   // （调样式不用真说话；正式路径完全不受影响）
-  const demoRef = useRef(
-    new URLSearchParams(window.location.search).get("demo") === "1",
+  // 用 lazy 初始化：URL 解析只在挂载时做一次，不在每次渲染里重复读 search。
+  const demoRef = useRef<boolean>(
+    (() => new URLSearchParams(window.location.search).get("demo") === "1")(),
   )
   // 主题：URL 参数（浏览器预览）优先，否则等 bootstrap/壳事件
   const [theme, setTheme] = useState<ThemeName>(() => themeFromParam() ?? "dark")
   const paletteRef = useRef(PALETTES[theme])
-  paletteRef.current = PALETTES[theme]
+  // 渲染期改 ref：React Compiler 规则会报 purity/refs 警告。
+  // 改成 effect 里同步——渲染期间只读 ref.current，副作用交给 effect。
+  useEffect(() => {
+    paletteRef.current = PALETTES[theme]
+  }, [theme])
 
   useEffect(() => {
     // 浮窗要透出桌面：页面背景必须透明

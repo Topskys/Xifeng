@@ -1,4 +1,4 @@
-"""把 spike 打成可双击的 Windows exe（PyInstaller，onedir）。
+﻿"""把 spike 打成可双击的 Windows exe（PyInstaller，onedir）。
 
 为什么用 PyInstaller 而不是 Nuitka：Nuitka 要 C 编译器（MSVC 3.5–5GB 或 MinGW 0.5GB），
 PyInstaller 纯 Python 就能跑。为什么 onedir 而不是 onefile：onefile 每次启动都要把
@@ -28,10 +28,11 @@ import sys
 import time
 from pathlib import Path
 
-SPIKE_DIR = Path(__file__).resolve().parents[1]
-ENTRY = SPIKE_DIR / "run_spike.py"
+CORE_DIR = Path(__file__).resolve().parents[1]
+REPO = CORE_DIR.parent
+ENTRY = CORE_DIR / "run_spike.py"
 
-sys.path.insert(0, str(SPIKE_DIR))
+sys.path.insert(0, str(CORE_DIR))
 from xifeng import paths  # noqa: E402  复用模型路径解析（模型不进包）
 
 
@@ -83,7 +84,7 @@ def check_rust_ext() -> None:
     except ImportError:
         raise SystemExit(
             "[build] 缺少 Rust 扩展 xifeng_rs.pyd（产物会静默回退纯 Python）。\n"
-            "[build]   先构建：cd spike && uv run python tools/build_ext.py --release\n"
+            "[build]   先构建：cd python && uv run python tools/build_ext.py --release\n"
             "[build]   注意必须用 --release：debug 版比 numpy 还慢（见 latency-budget.md §4.5）"
         ) from None
     ver = getattr(xifeng_rs, "__version__", "?")
@@ -108,7 +109,7 @@ def build(out: Path, work: Path, with_models: bool, clean: bool) -> Path:
         "--onedir",
         "--console",
         "--noconfirm",
-        "--paths", str(SPIKE_DIR),
+        "--paths", str(CORE_DIR),
         "--distpath", str(out),
         "--workpath", str(work),
         "--specpath", str(work),
@@ -133,7 +134,7 @@ def build(out: Path, work: Path, with_models: bool, clean: bool) -> Path:
 
     print("[build] " + " ".join(cmd))
     t0 = time.perf_counter()
-    rc = subprocess.call(cmd, cwd=str(SPIKE_DIR))
+    rc = subprocess.call(cmd, cwd=str(CORE_DIR))
     if rc != 0:
         raise SystemExit(f"PyInstaller 失败，退出码 {rc}")
     print(f"[build] PyInstaller 完成，用时 {time.perf_counter() - t0:.1f}s")
@@ -149,7 +150,7 @@ def build(out: Path, work: Path, with_models: bool, clean: bool) -> Path:
         shutil.copytree(src, dst, dirs_exist_ok=True)
 
     # Web GUI 前端（vite 构建产物；`--web` 运行时从 <exe 同级>/frontend 读取）
-    front = SPIKE_DIR / "frontend" / "dist"
+    front = REPO / "apps" / "desktop" / "dist"
     if front.exists():
         dst_front = app_dir / "frontend"
         print(f"[build] 复制前端 {front} → {dst_front}")

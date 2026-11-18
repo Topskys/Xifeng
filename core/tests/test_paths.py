@@ -168,7 +168,7 @@ def test_data_dir_falls_back_next_to_exe_when_frozen(monkeypatch, tmp_path: Path
     assert paths.data_dir() == tmp_path / "app" / "data"
 
 
-def test_data_dir_falls_back_inside_spike_when_not_frozen(monkeypatch, tmp_path: Path) -> None:
+def test_data_dir_falls_back_inside_core_dir_when_not_frozen(monkeypatch, tmp_path: Path) -> None:
     """Low 进程写不进 %LOCALAPPDATA% 时，落到仓库内的 `.data`（G25）。"""
     monkeypatch.delenv("IME_DATA_DIR", raising=False)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))

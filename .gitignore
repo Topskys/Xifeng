@@ -6,7 +6,13 @@ __pycache__/
 pytest-of-*/
 uv.lock
 
-# 模型与音频素材（太大，不进仓库）
+# JS / TS（pnpm workspace：依赖与构建产物都不入库，只有 pnpm-lock.yaml 进）
+node_modules
+.pnpm-store/
+*.tsbuildinfo
+apps/desktop/dist/
+
+# 模型与音频素材（太大，不进仓库；模型统一根见 D15）
 models/
 *.onnx
 *.wav
@@ -20,18 +26,20 @@ logs/
 # 本地临时目录（浏览器验证 profile / 备份 / 截图，勿入仓）
 temp/
 vi-shots-*/
-
-# Rust
-target/
+.cache/
+.shots/
 .rust-temp/
 .pyitest/
 .tauri-work/
-spike/tmp*/
-.shots/
+python/tmp*/
+core/tmp*/
+
+# Rust
+target/
 *.pyd
 # Tauri 内嵌的 PyInstaller sidecar（build_core.py 产出，约 100MB+，绝不入库；
 # DIST 目录不需要重建也保留模型/SQLite：G24/G25）
-spike/frontend/src-tauri/resources/
+apps/desktop/src-tauri/resources/
 
 # SQLite 用户数据（源码 + Low 进程回退目录，见 docs/03-core-concepts/storage.md）
 .data/

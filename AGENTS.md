@@ -7,10 +7,10 @@ PyInstaller 打包交付。Rust 版推迟（决策见 `docs/00-process/plan.md` 
 ## 命令
 
 ```bash
-# 全部命令在 spike/ 下执行（uv 管理环境，Python 3.11，镜像已配清华源）
-cd spike
+# Python 命令在 core/ 下执行（uv 管理环境，Python 3.11，镜像已配清华源）
+cd core
 uv sync                                  # 首次/依赖变更后
-uv run pytest                            # 单测（309 个，约 25s；ptt 时序用例占 17s）
+uv run pytest                            # 单测（330 个，约 40s）
 uv run python tools/build_ext.py --release # 编译 Rust 扩展（debug 比 numpy 慢，默认用 release）
 uv run python run_spike.py --help        # 手动跑一次
 uv run python bench.py --n 20            # 输出各阶段 P50/P95（自动判环境档位）
@@ -23,9 +23,16 @@ uv run python run_spike.py --tray        # 托盘常驻（默认按需开麦）
 %TEMP%\vi-venv\Scripts\python.exe packaging\build.py
 
 # Tauri 内嵌核心 sidecar（见 docs/02-guides/packaging.md「sidecar」节）
-uv run python packaging/build_core.py    # 产出 src-tauri/resources/core/（不进仓库）
+uv run python packaging/build_core.py    # 产出 apps/desktop/src-tauri/resources/core/（不进仓库）
 uv run python tools/core_smoke.py        # 验证 sidecar 能独立跑 IPC（ready→bootstrap→shutdown）
 uv run python tools/ask_boot.py 9334     # 从 Tauri 窗口经 CDP 验证 py_call（需先起壳+调试端口）
+
+# 前端 / 壳（pnpm workspace，命令都在仓库根执行）
+pnpm install                             # 首次/依赖变更后（apps/* 一并装）
+pnpm dev                                 # 仅前端（浏览器 + Python --web）
+pnpm build                               # 前端产物 apps/desktop/dist
+pnpm tauri:dev                           # 壳内跑（Rust + WebView2）
+pnpm tauri:build                         # 出安装包
 
 # Rust（crates/，上机位置见 docs/02-guides/rust-env.md）
 cargo test -p ime-post                   # 后处理规则单测（21 个）
@@ -33,8 +40,9 @@ cargo test -p ime-vad                    # VAD 算法单测（15 个）
 cargo build -p ime-py --release          # 只编译扩展，不装进 venv
 ```
 
-> Python 环境 MUST 用 `uv`（`spike/pyproject.toml` + `spike/.venv`）。
-> 禁止 `pip install` 到系统 Python；禁止提交 `.venv` 与 `__pycache__`。
+> Python 环境 MUST 用 `uv`（`core/pyproject.toml` + `core/.venv`）。
+> JS/TS 依赖 MUST 用 `pnpm`（`pnpm-workspace.yaml`，根 lockfile）；禁止 `npm install`。
+> 禁止 `pip install` 到系统 Python；禁止提交 `.venv`、`node_modules` 与 `__pycache__`。
 > 本仓库目录带 **Low 完整性标签**：从这里启动的 exe 收不到硬件按键（G21），
 > 打包产物 MUST 落在仓库外的目录（G24）。
 
@@ -130,15 +138,24 @@ Python 签名 ↔ Rust 的转接。Python 侧保留纯 Python 基准实现，两
 ## 目录约定
 
 ```
-voice-ime/
+Xifeng/
 ├── AGENTS.md          # 只放这一个文档
+├── package.json       # pnpm workspace 根（脚本入口，别在这加依赖）
+├── pnpm-workspace.yaml
 ├── docs/
 │   ├── llms.txt
 │   ├── 00-process/    # intent / spec / plan / review / sdlc（SDLC 工件）
 │   ├── 01-overview/   # architecture / latency-budget
 │   ├── 02-guides/     # quickstart / packaging
+│   ├── 03-core-concepts/
 │   ├── 05-gotchas.md
 │   └── reference/     # 闲聊.md 等原始素材
-├── spike/             # 交付主程序（uv 项目）+ packaging/ + tools/build_ext.py
+├── apps/
+│   └── desktop/       # Tauri 壳 + Web 主界面（pnpm 包 @xifeng/desktop）
+│       ├── src/       # React 五页 + 浮窗页
+│       └── src-tauri/ # Rust 壳：hotkey / voice / inject / py(IPC)
+├── core/              # Python 核（uv 项目）：xifeng/ tests/ tools/ packaging/
+│   └── run_spike.py   # 入口名是运行时契约，改名需同步 py.rs 与安装器
+├── packages/          # 预留共享 TS 包（见 packages/README.md）
 └── crates/            # Rust 核心（PyO3 扩展）：ime-post 规则 / ime-vad 算法 / ime-py 转接
 ```

@@ -1,7 +1,7 @@
-# spike —— 交付主程序（Python 实现）
+# core —— Python 核（产品里的推理运行时）
 
 不再是"用完就扔的验证件"：交付形态现为 **Tauri 壳（`xifeng.exe`）+ Python sidecar（`Xifeng-Core`）**
-（`docs/00-process/plan.md` D14/D16），本目录是 Python 运行时与源码所在。
+（`docs/00-process/plan.md` D14/D16），本目录是 Python 核的源码与工具所在。
 
 它把 `录音 → ASR → 文本清理 → 光标注入` 串起来，并把三个**未实测假设**
 变成数字：
@@ -17,7 +17,7 @@
 环境由 `uv` 管理（Python 3.11，依赖见 `pyproject.toml`，索引已指向清华镜像）。
 
 ```bash
-cd spike
+cd core
 uv sync                # 首次或依赖变更后
 uv run pytest          # 330 个用例，约 30s
 ```
@@ -81,7 +81,7 @@ uv run python fetch_model.py --force    # 强制重下
 
 ## 数据：历史 / 统计 / 设置（SQLite）
 
-默认开着，库在 `%LOCALAPPDATA%\Xifeng\xifeng.db`（Low 进程回退 `<spike>/.data`，
+默认开着，库在 `%LOCALAPPDATA%\Xifeng\xifeng.db`（Low 进程回退 `<core>/.data`，
 冻结 exe 在 `<exe 同级>\data`）。细节见 `docs/03-core-concepts/storage.md`、坑位见 G25。
 
 ```bash
@@ -101,20 +101,20 @@ uv run python run_spike.py --web --tab config    # 直接开配置页
 ```
 
 本地服务只监听 `127.0.0.1:8642`，用 Edge `--app` 开无地址栏窗口；关窗 30s 后自动退出。
-安装版的同一套页面跑在 Tauri 内嵌 webview 里，不开本地端口。前端源码在 `frontend/`，
-改了要先 `vite build`（产物 `frontend/dist`，坑位见 G31）。
+安装版的同一套页面跑在 Tauri 内嵌 webview 里，不开本地端口。前端源码在 `apps/desktop/`，
+改了要先 `vite build`（产物 `apps/desktop/dist`，坑位见 G31）。
 
 ## 打包（Tauri 壳 + sidecar）
 
 ```bash
-cd spike
-uv run python packaging/build_core.py --clean    # 产物 src-tauri/resources/core/Xifeng-Core
-cd frontend
+cd core
+uv run python packaging/build_core.py --clean    # 产物 apps/desktop/src-tauri/resources/core/Xifeng-Core
+cd ../apps/desktop
 pnpm run tauri:build                             # 壳 + NSIS 安装器
 ```
 
-产物：`frontend/src-tauri/target/release/xifeng.exe` 与
-`frontend/src-tauri/target/release/bundle/nsis/Xifeng_0.1.0_x64-setup.exe`。
+产物：`apps/desktop/src-tauri/target/release/xifeng.exe` 与
+`apps/desktop/src-tauri/target/release/bundle/nsis/Xifeng_0.1.0_x64-setup.exe`。
 慢的是 Rust 编译，不是 Python。`packaging/build.py`（PyInstaller onedir）保留，
 只用于单独交付 Python 运行时；模型不进安装包（D15）。
 细节与发版见 `docs/02-guides/packaging.md`（坑位 G24/G37/G38）。
@@ -159,9 +159,9 @@ Tk 窗口能否收到按键（判据）、以及按住 Ctrl 的真实时长。
 | `xifeng/paths.py` | 模型与数据目录解析（源码/冻结两套，G24） |
 | `xifeng/ipc.py` | 壳 ↔ Python 的 NDJSON 方法表 |
 | `xifeng/webgui.py` | Web 调试界面 + HTTP API（更新检查在这里） |
-| `packaging/build_core.py` | sidecar 打包（产物进 `src-tauri/resources/core`） |
+| `packaging/build_core.py` | sidecar 打包（产物进 `apps/desktop/src-tauri/resources/core`） |
 | `packaging/build.py` | PyInstaller 打包（仅单独交付 Python 运行时） |
-| `frontend/` | React 五页 + `src-tauri`（Rust 壳） |
+| `../apps/desktop/` | React 五页 + `src-tauri`（Rust 壳） |
 | `xifeng/pipeline.py` | 串联 + 打点 |
 | `xifeng/audio.py` | WAV 读写、合成音频 |
 | `run_spike.py` | 手动跑一次 |

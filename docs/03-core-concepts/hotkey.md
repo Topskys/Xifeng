@@ -2,7 +2,7 @@
 
 一次输入的起点。默认 **按住 Ctrl 说话，松开结束**。
 
-实现基准：`spike/xifeng/hotkey.py`；Rust 侧 `ime-hotkey`（rdev）必须等价。
+实现基准：`core/xifeng/hotkey.py`；Rust 侧 `ime-hotkey`（rdev）必须等价。
 
 ## 为什么是"按住"而不是"点一下"
 
@@ -146,7 +146,7 @@ Esc 与 PTT 键共用同一采集源：钩子可用时读钩子维护的按下�
 设计上 MUST 在**按下热键的瞬间**快照前台窗口（`docs/03-core-concepts/injection.md`），
 因为用户可能在说话期间切窗口。
 
-spike 当前在**注入前**才快照 —— 属已知偏差，等价于"只检查松手瞬间的焦点"。
+Python 核当前在**注入前**才快照 —— 属已知偏差，等价于"只检查松手瞬间的焦点"。
 Rust 侧 MUST 改回按下时快照，否则"按住说话时误切窗口"会被判成焦点正常。
 
 ## 已知风险

@@ -1,0 +1,5 @@
+# pnpm workspace 根：JS/TS 包统一在这里管理
+# 所有 JS 命令都可以在仓库根执行（见根 package.json 的 scripts），不用再 cd 进子目录。
+packages:
+  - "apps/*"
+  - "packages/*"

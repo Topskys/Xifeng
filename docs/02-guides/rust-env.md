@@ -93,12 +93,12 @@ Python 主流程不重写，Rust 以**扩展模块**参与：`crates/ime-post` �
 ## 构建
 
 ```powershell
-cd spike
+cd core
 uv run python tools/build_ext.py            # debug
 uv run python tools/build_ext.py --release  # 更快更小
 ```
 
-产物直接落到 `spike/.venv/Lib/site-packages/xifeng_rs.pyd`（**不进仓库**）。
+产物直接落到 `core/.venv/Lib/site-packages/xifeng_rs.pyd`（**不进仓库**）。
 
 `abi3-py311`：一个 `.pyd` 覆盖 3.11+，PyInstaller 打包时不用跟着 Python 小版本换。
 
@@ -125,8 +125,8 @@ cargo test -p ime-post                                     # 21 个规则单测
 
 ## 规则改动的流程（硬约束）
 
-`spike/xifeng/postprocess.py` 是**行为基准**，`crates/ime-post` 是等价实现。
-改规则 MUST 两边一起改，并让 `spike/tests/test_postprocess_parity.py` 继续绿——它把
+`core/xifeng/postprocess.py` 是**行为基准**，`crates/ime-post` 是等价实现。
+改规则 MUST 两边一起改，并让 `core/tests/test_postprocess_parity.py` 继续绿——它把
 40 条黄金用例 + 150 条确定性随机串 × 9 组配置逐一对比，任何一边漏改都会红。
 
 两个实现里的已知差异点（都在测试覆盖范围内，别再踩）：

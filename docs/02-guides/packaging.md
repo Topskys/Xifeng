@@ -1,7 +1,7 @@
 # 打包与交付
 
 **当前交付形态：Tauri 壳（`xifeng.exe`）+ Python sidecar（`Xifeng-Core`）**（D14/D16）。
-壳与安装器在 `spike/frontend` 用 `pnpm tauri:build` 构建；sidecar 由
+壳与安装器在 `apps/desktop` 用 `pnpm tauri:build` 构建；sidecar 由
 `packaging/build_core.py` 打进 `src-tauri/resources/core/`。见下文「sidecar」与「发版」两节，
 工具链见 `tauri-env.md`。
 
@@ -11,7 +11,7 @@
 ## 前置
 
 ```bash
-cd spike
+cd core
 uv sync          # 已包含 dev 依赖 pyinstaller>=6.11
 ```
 
@@ -29,9 +29,9 @@ uv sync          # 已包含 dev 依赖 pyinstaller>=6.11
 在普通（非 agent）终端里用目录外的解释器构建：
 
 ```bat
-cd /d D:\project\workspace\voice-ime\spike
+cd /d D:\project\workspace\Xifeng\core
 uv venv %TEMP%\vi-venv --python 3.11
-set PYTHONPATH=D:\project\workspace\voice-ime\spike;D:\project\workspace\voice-ime\spike\.venv\Lib\site-packages
+set PYTHONPATH=D:\project\workspace\Xifeng\core;D:\project\workspace\Xifeng\core\.venv\Lib\site-packages
 %TEMP%\vi-venv\Scripts\python.exe packaging\build.py
 ```
 
@@ -56,15 +56,15 @@ set PYTHONPATH=D:\project\workspace\voice-ime\spike;D:\project\workspace\voice-i
 （与 `build.py` 的"独立可双击产品"不同，它不带 GUI，只跑 `--ipc`）：
 
 ```bash
-cd spike
-uv run python packaging/build_core.py          # 产出 src-tauri/resources/core/
+cd core
+uv run python packaging/build_core.py          # 产出 apps/desktop/src-tauri/resources/core/
 uv run python packaging/build_core.py --clean  # 先清掉旧产物再打
 uv run python tools/core_smoke.py              # 独立冒烟：ready→bootstrap→stats→shutdown
 ```
 
 要点：
 
-- 产物落在 `spike/frontend/src-tauri/resources/core/`，`tauri.conf.json` 的
+- 产物落在 `apps/desktop/src-tauri/resources/core/`，`tauri.conf.json` 的
   `resources` 把 `resources/core/` 映射到安装目录 `core/`，约 100MB+，
   **已在 `.gitignore`，绝不入库**（G24 同理）。
 - `tauri` 的 `py.rs` 按 `is_sidecar` 判断：进程名是 `Xifeng-Core.exe` 时直接执行、
@@ -143,7 +143,7 @@ uv run python tools/core_smoke.py              # 独立冒烟：ready→bootstra
 `sherpa_onnx` 的 DLL 由 `--collect-all` 收进 `_internal`；`sqlite3` 随 Python 自带；
 `pystray`/`Pillow`（托盘）由 PyInstaller 的 hook + `--collect-all` 收进包内；
 `llama_cpp`（纠错运行时，含 `llama.dll`/`ggml*.dll`）同样用 `--collect-all`。
-`tkinter` 仍随包（`--gui` 是旧版兜底），主界面是 Web：`build.py` 把 `frontend/dist`
+`tkinter` 仍随包（`--gui` 是旧版兜底），主界面是 Web：`build.py` 把 `apps/desktop/dist`
 复制成 `<exe 同级>/frontend`，所以交付目录 MUST 连同 `frontend` 一起分发。
 **纠错模型**（D15 统一根）：优先放 `%LOCALAPPDATA%\Xifeng\models\llm`
 （重建 dist 不丢）；打包自带时在安装目录 `models/llm/` 兜底；缺失时配置页显示
@@ -200,14 +200,14 @@ set EXE=%LOCALAPPDATA%\Xifeng-build\dist\Xifeng\Xifeng.exe
 %EXE% --text "呃 今天 嗯 开会" --no-inject
 
 :: 2. 真实模型，验证 DLL 收集与模型路径
-%EXE% --wav D:\project\workspace\voice-ime\spike\fixtures\quality\01.wav --no-inject --print-raw
+%EXE% --wav D:\project\workspace\Xifeng\core\fixtures\quality\01.wav --no-inject --print-raw
 
 :: 3. PTT：看第一行必须是 完整性=Medium(0x2000)
 %EXE% --ptt --backend mock --no-inject
 
 :: 4. 数据层：库路径 + 历史可查
 %EXE% --text "呃 今天 嗯 开会" --no-inject
-%EXE% --wav D:\project\workspace\voice-ime\spike\fixtures\quality\03.wav --no-inject
+%EXE% --wav D:\project\workspace\Xifeng\core\fixtures\quality\03.wav --no-inject
 %EXE% --history 3
 %EXE% --stats
 ```

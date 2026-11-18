@@ -8,7 +8,7 @@ import math
 import struct
 from pathlib import Path
 
-CORE = Path(__file__).resolve().parents[1] / "frontend/src-tauri/resources/core/Xifeng-Core/Xifeng-Core.exe"
+CORE = Path(__file__).resolve().parents[2] / "apps/desktop/src-tauri/resources/core/Xifeng-Core/Xifeng-Core.exe"
 
 # 0.5s 440Hz 正弦，i16 LE
 frames = []

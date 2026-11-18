@@ -12,11 +12,12 @@ import json
 import sys
 import time
 import urllib.request
+from pathlib import Path
 
 sys.path.insert(0, "tools")
 from cdp_probe import _recv, _send, _ws_connect  # noqa: E402
 
-OUT_DIR = r"D:\project\workspace\voice-ime\.tauri-work"
+OUT_DIR = Path(__file__).resolve().parents[2] / ".cache" / "tauri-work"
 
 
 def main() -> int:

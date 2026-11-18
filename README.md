@@ -79,20 +79,21 @@ flowchart LR
 
 ```bash
 # Python 侧与测试
-cd spike
+cd core
 uv sync
 uv run pytest                 # 330 个用例
 
 # Rust 扩展（xifeng_rs.pyd）
 uv run python tools/build_ext.py --release
 
-# 内嵌 sidecar（产物：src-tauri/resources/core/Xifeng-Core）
+# 内嵌 sidecar（产物：apps/desktop/src-tauri/resources/core/Xifeng-Core）
 uv run python packaging/build_core.py --clean
 
 # 壳 + 安装器（产物：target/release/xifeng.exe、bundle/nsis/Xifeng_0.1.0_x64-setup.exe）
-cd frontend
+# 回仓库根执行（pnpm workspace 根）
+cd ..
 pnpm install
-pnpm run tauri:build
+pnpm tauri:build
 ```
 
 开发时也可以直接跑 Python 界面：`uv run python run_spike.py --web`（五页 Web UI）或 `--tray`（托盘常驻）。
@@ -103,12 +104,13 @@ pnpm run tauri:build
 ## 目录
 
 ```
-voice-ime/
-├── spike/            # 交付主程序：Python 运行时、Web UI、Tauri 壳、打包脚本
-│   ├── xifeng/       # ASR 运行时、后处理、注入、存储、托盘
-│   ├── frontend/     # React 五页界面 + src-tauri（Rust 壳）
-│   └── tests/        # 330 个用例（含 Rust/Python parity）
+Xifeng/
+├── apps/desktop/     # Tauri 壳 + React 五页界面（pnpm 包 @xifeng/desktop）
+│   ├── src/          # React 页面（五页 + 浮窗）
+│   └── src-tauri/    # Rust 壳：热键 / 采集 / 注入 / IPC
+├── core/             # Python 核：xifeng/、tests/（330 用例）、tools/、packaging/
 ├── crates/           # ime-post / ime-vad / ime-py（PyO3 扩展）
+├── packages/         # 预留共享 TS 包
 └── docs/             # 架构、延迟预算、IPC 契约、打包、踩坑
 ```
 

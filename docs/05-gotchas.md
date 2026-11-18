@@ -145,7 +145,7 @@ ALT 技巧（G6）抢前台**成功**（`_restore_focus → True`），跨进程
 改成 Ctrl 长按后，每次 `Ctrl+C` / `Ctrl+V` 都是一次"按下-松开"。
 若不做保护，复制粘贴会触发录音并把环境噪声注入光标。
 
-对策：`min_hold_ms = 250`（`spike/xifeng/hotkey.py`）。按住不足 250ms 直接丢弃，
+对策：`min_hold_ms = 250`（`core/xifeng/hotkey.py`）。按住不足 250ms 直接丢弃，
 不进 ASR、不产生 Trace。实测 Ctrl+C 的按住时长约 60–120ms，与门槛有足够间距。
 
 两个待观察项：
@@ -206,7 +206,7 @@ print(user32.GetAsyncKeyState(0x7C) & 0x8000)   # → 0
 
 ## G21 Low 完整性下全局钩子收不到硬件按键
 
-2026-10-28 用 `spike/key_diag.py` 测出真正原因：**进程运行在 Low 完整性级别（`0x1000`）**，
+2026-10-28 用 `core/key_diag.py` 测出真正原因：**进程运行在 Low 完整性级别（`0x1000`）**，
 不是"这台机器读不到按键"。
 
 关键证据（同一次运行同时出现）：
@@ -248,7 +248,7 @@ Tk 窗口：收到 43 个键 → ['Control_R', ..., 'a', ...]
 ```
 > icacls D:\project\workspace
         Mandatory Label\Low Mandatory Level:(OI)(CI)(NW)      ← 显式低完整性标签
-> icacls D:\project\workspace\voice-ime
+> icacls D:\project\workspace\Xifeng
         Mandatory Label\Low Mandatory Level:(I)(OI)(CI)(NW)   ← (I) 继承而来
 ```
 
@@ -261,7 +261,7 @@ Tk 窗口：收到 43 个键 → ['Control_R', ..., 'a', ...]
 - 用目录外的解释器跑：
   `set PYTHONPATH=.venv\Lib\site-packages && py -3 key_diag.py`
   （诊断不需要 sherpa；跑 `--ptt` 时加 `--backend mock`）
-- 或把 `spike\` 复制到未打标的目录（如 `%TEMP%\vi-run`）后重跑
+- 或把 `core\` 复制到未打标的目录（如 `%TEMP%\vi-run`）后重跑
 - `run_spike.py --ptt` 启动时直接打印完整性级别，Low 时立刻警告，不再让用户白等
 
 本环境里唯一能验证的时序语义是 `key_diag.py` 第 5 步：Tk 窗口里按住 Ctrl，
@@ -368,7 +368,8 @@ e2e 验证（Medium 进程 + 自注入 Ctrl 驱动真实 `--ptt`，常驻流模�
 **A. 在仓库里构建 = 打出 Low 完整性 exe（功能直接废）**
 
 第一次 `uv run python packaging/build.py`，`tempfile.gettempdir()` 返回
-`C:\Users\...\Temp`，但实际产物落在 `spike\xifeng-dist`。原因：
+`C:\Users\...\Temp`，但实际产物落在 `spike\xifeng-dist`（当时的目录名；对应今天仓库里的
+`core\`）。原因：
 
 ```
 uv run → .venv\Scripts\python.exe（在 Low 目录里创建 → 进程 Low）
@@ -383,7 +384,7 @@ tempfile._get_default_tempdir() 探测失败 → 静默退回当前目录
 
 ```bat
 uv venv %TEMP%\vi-venv --python 3.11
-set PYTHONPATH=<spike>;<spike>\.venv\Lib\site-packages
+set PYTHONPATH=<python>;<python>\.venv\Lib\site-packages
 %TEMP%\vi-venv\Scripts\python.exe packaging\build.py
 ```
 
@@ -444,7 +445,7 @@ onefile 会把模型也解压一遍；onedir 里它只会让目录变大但启�
 判据：`paths.data_dir()` 会先做一次"建目录 + 写探针文件"，失败才回退。打印
 `[db] db=...\xifeng.db` 时确认路径：
 
-- 源码 + Low 进程 → `<spike>\.data\xifeng.db`（正常，预期行为）
+- 源码 + Low 进程 → `<python>\.data\xifeng.db`（正常，预期行为）
 - 源码/冻结 + Medium → `%LOCALAPPDATA%\Xifeng\xifeng.db`
 - 冻结 + `%LOCALAPPDATA%` 不可写 → `<exe 同级>\data\xifeng.db`
 
@@ -587,7 +588,7 @@ var 时就把占位文本当成了用户输入（历史页首屏搜索"搜索文
   `PrintWindow` 失败（黑帧/直接返回 0）。
 - **可靠截图走 CDP**：`--remote-debugging-port=9222` **必须配独立
   `--user-data-dir`**（新版浏览器禁止默认 profile 开调试端口）。
-  工具：`spike/cdp_shot.py` / `cdp_ask.py`（自写最小 WS 客户端，忽略 ping/pong 帧）。
+  工具：`core/cdp_shot.py` / `core/cdp_ask.py`（自写最小 WS 客户端，忽略 ping/pong 帧）。
 - **`--window-size` 单位是 CSS 像素**：dpr=1.5 时物理窗口是 1770px。
   PrintWindow/GetWindowRect 都是物理像素 —— 尺寸对不上时截图只截到局部，
   看起来像"布局溢出"，其实是截图 artifacts。
@@ -599,7 +600,7 @@ var 时就把占位文本当成了用户输入（历史页首屏搜索"搜索文
 
 ## G30 Low 进程检视 GUI / 读数据
 
-- 给 GUI 做视觉回归用 `spike/ui_shots.py`（PrintWindow 离屏抓帧，不抢前台、
+- 给 GUI 做视觉回归用 `core/ui_shots.py`（PrintWindow 离屏抓帧，不抢前台、
   不需要 Medium）。临时产物一律进 `<仓库根>/temp/`。
 - 检视用**库副本**：直接 `sqlite3.connect()` 打开 `%LOCALAPPDATA%` 里的 WAL 库
   会 `unable to open database file`（只读也要建 -shm，Low 进程建不了）。
@@ -608,7 +609,7 @@ var 时就把占位文本当成了用户输入（历史页首屏搜索"搜索文
 
 ## G31 Web GUI：Edge 应用窗口 + 本地服务 + 心跳
 
-交付界面从 tkinter 换成 `spike/frontend`（vite + React + shadcn/ui）+ `webgui.py`，
+交付界面从 tkinter 换成 `apps/desktop`（vite + React + shadcn/ui）+ `webgui.py`，
 踩到的四个点：
 
 **A. 不要用 WebView 壳（pywebview/Tauri）**
@@ -632,11 +633,11 @@ pywebview 依赖 pythonnet，本机 .NET 运行时加载失败；Tauri 要 ~6GB 
 
 **D. 前端构建产物位置**
 
-源码跑用 `spike/frontend/dist`；冻结包 MUST 复制到 `<exe 同级>/frontend`
+源码跑用 `apps/desktop/dist`；冻结包 MUST 复制到 `<exe 同级>/frontend`
 （`packaging/build.py` 已处理）。改了 `src/` 不重新 `vite build`，界面看到的还是旧 dist ——
 排查"样式没生效"先比 `dist/assets` 与 `src` 的修改时间。
 
-验证：`spike/cdp_shot.py` 走 CDP 截五页（stats/models/config/history/about）。
+验证：`core/cdp_shot.py` 走 CDP 截五页（stats/models/config/history/about）。
 Edge 必须用独立 `--user-data-dir` + `--remote-debugging-port=9222` + `--new-window` 启动，
 且脚本要按 `http://127.0.0.1` 过滤页面 —— 首次启动的同步/欢迎页也是 `type=page`，
 不筛就会截到 Edge 自己的弹窗。
@@ -759,7 +760,7 @@ LINK : fatal error LNK1104: 无法打开文件"C:\...\Temp\lnk{GUID}.tmp"
 旁证：Python 的 `tempfile.gettempdir()` 在这台机器上直接回退到**当前工作目录**。
 
 **解法**：构建时把 `TEMP`/`TMP` 指到 `D:\env\tmp`（`Authenticated Users: Modify`）。
-`spike/tools/build_ext.py` 就是 `cargo build` + 把 `xifeng_rs.dll` 改名 `.pyd` 放进
+`core/tools/build_ext.py` 就是 `cargo build` + 把 `xifeng_rs.dll` 改名 `.pyd` 放进
 site-packages —— 与 `maturin develop` 等价，但绕开它的临时目录步骤。maturin 仍在 dev
 依赖里，给 CI / 无限制的机器打 wheel 用。
 
@@ -907,7 +908,7 @@ tail_pad_ms = 300  # 末段终点额外后留（韵母尾音）
 - 同段音频 `use_vad=True` → 「你好喂今天天气不错」（9 字）；首段多留 300ms 即可复原
 - `cargo test -p ime-vad`：`head_pad_keeps_onset_before_first_active_frame`、
   `internal_boundary_pad_stays_small`
-- `spike/tests/test_vad.py`：`test_head_pad_extends_first_segment`、
+- `core/tests/test_vad.py`：`test_head_pad_extends_first_segment`、
   `test_internal_boundary_pad_stays_small`；`test_vad_parity.py` 把 head/tail 纳入 kwargs
 - e2e 实测：单击按住说两遍，`chars=9` × 2，`outcome=Injected`
 
@@ -1079,13 +1080,13 @@ VAD 的 `head_pad_ms` 也救不了（那段音频根本不存在）。要彻底�
 `IME_DATA_DIR` 跳过、迁移失败回退旧库/旧模型；真实机器上旧目录含 228MB 模型时
 启动一次即完成（日志 `[paths] 已迁移旧版数据 → %LOCALAPPDATA%\Xifeng`）。
 
-**踩坑（2026-11-17 实测）**：在仓库目录里拿 `spike/.venv/Scripts/python.exe` 手动跑迁移，
+**踩坑（2026-11-17 实测）**：在仓库目录里拿 `core/.venv/Scripts/python.exe` 手动跑迁移，
 会把 `rename` 变成 `PermissionError(13, '拒绝访问')`。根因不是代码：仓库带 **Low 完整性标签**
 （G21/G24），venv 里的 `python.exe` 继承了这个标签，`icacls` 可见
 `Mandatory Label\Low Mandatory Level:(I)(NW)`；于是该进程**只能写 Low 对象**，
 对 `%LOCALAPPDATA%`、`D:\env\*`、`%TEMP%` 一律 `EACCES`（同一个路径用 PowerShell / 系统
 Python 就正常）。所以迁移/落盘类验证 MUST 用 **复制到仓库外再运行的产物**
-（`resources/core/Xifeng-Core` → `D:\env\tmp\...`，robocopy 到 Medium 目录后标签即脱落），
+（`apps/desktop/src-tauri/resources/core/Xifeng-Core` → `D:\env\tmp\...`，robocopy 到 Medium 目录后标签即脱落），
 或用仓库外的解释器；不要拿 venv 里的 Python 直接验证"能不能写用户目录"。
 
 **踩坑（2026-11-17 二次实测）**：迁移日志写在 `ipc_mode()` 之前，而 Windows 下

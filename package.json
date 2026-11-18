@@ -1,0 +1,16 @@
+{
+  "name": "xifeng",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Xifeng 本地语音输入法：Tauri 壳 + Python ASR 运行时",
+  "scripts": {
+    "dev": "pnpm --filter @xifeng/desktop dev",
+    "build": "pnpm --filter @xifeng/desktop build",
+    "lint": "pnpm --filter @xifeng/desktop lint",
+    "preview": "pnpm --filter @xifeng/desktop preview",
+    "check:transport": "pnpm --filter @xifeng/desktop check:transport",
+    "tauri": "pnpm --filter @xifeng/desktop tauri",
+    "tauri:dev": "pnpm --filter @xifeng/desktop tauri:dev",
+    "tauri:build": "pnpm --filter @xifeng/desktop tauri:build"
+  }
+}

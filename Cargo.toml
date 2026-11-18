@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/ime-post", "crates/ime-vad", "crates/ime-py"]
 # Tauri 壳独立于 PyO3 扩展工作区：依赖树完全不同，混在一起会让 `cargo test -p ime-post`
 # 顺带解析整棵 tauri 依赖。
-exclude = ["spike/frontend/src-tauri"]
+exclude = ["apps/desktop/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

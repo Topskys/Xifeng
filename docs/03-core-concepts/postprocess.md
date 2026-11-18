@@ -2,7 +2,7 @@
 
 ASR 输出到注入之间唯一的一层。目标不是"改得更通顺"，而是**去噪**：把不该出现在光标处的内容挡掉。
 
-行为基准：`spike/xifeng/postprocess.py`（Rust 侧 `ime-post` MUST 与之一致，黄金用例见 `spike/tests/test_postprocess.py`）。
+行为基准：`core/xifeng/postprocess.py`（Rust 侧 `ime-post` MUST 与之一致，黄金用例见 `core/tests/test_postprocess.py`）。
 
 ## 五步管线（顺序固定）
 

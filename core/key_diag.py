@@ -503,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
         print("      set PYTHONPATH=.venv\\Lib\\site-packages")
         print("      %TEMP%\\vi-venv\\Scripts\\python.exe key_diag.py")
         print("      %TEMP%\\vi-venv\\Scripts\\python.exe ptt_selftest.py   # PTT 时序自测 4/4")
-        print("  对策 B：把 spike\\ 复制到未打标的目录（如 %TEMP%\\vi-run）后重跑")
+        print("  对策 B：把 core\\ 复制到未打标的目录（如 %TEMP%\\vi-run）后重跑")
         print("  对策 C：管理员去掉标签，需要写 SACL 权限：")
         print("      icacls . /setintegritylevel (OI)(CI)Medium")
     elif probe_ok:

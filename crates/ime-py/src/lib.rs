@@ -1,7 +1,7 @@
 //! Xifeng 的 PyO3 扩展模块 `xifeng_rs`。
 //!
 //! 只做「Python 签名 ↔ Rust 实现」的转接，规则本身在 `ime-post`。
-//! 参数命名与 `spike/xifeng/postprocess.py` 的 `PostConfig` 字段一一对应，
+//! 参数命名与 `core/xifeng/postprocess.py` 的 `PostConfig` 字段一一对应，
 //! 这样 Python 侧不必维护两套配置结构。
 
 use std::collections::HashMap;

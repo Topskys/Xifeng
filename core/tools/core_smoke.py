@@ -10,8 +10,8 @@ import time
 from pathlib import Path
 
 CORE = (
-    Path(__file__).resolve().parents[1]
-    / "frontend" / "src-tauri" / "resources" / "core" / "Xifeng-Core" / "Xifeng-Core.exe"
+    Path(__file__).resolve().parents[2]
+    / "apps" / "desktop" / "src-tauri" / "resources" / "core" / "Xifeng-Core" / "Xifeng-Core.exe"
 )
 
 

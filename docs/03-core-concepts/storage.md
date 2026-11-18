@@ -64,7 +64,7 @@ CREATE TABLE settings (         -- 键值对，CLI 与 GUI 共用
 | 2 | 环境变量 `IME_DATA_DIR` | `<该目录>/xifeng.db` |
 | 3 | `%LOCALAPPDATA%` 可写（源码与冻结形态都走这条） | `%LOCALAPPDATA%\Xifeng\xifeng.db` |
 | 4 | 冻结形态且 `%LOCALAPPDATA%` 不可写 | `<exe 同级>/data/xifeng.db` |
-| 5 | 源码形态且 `%LOCALAPPDATA%` 不可写（Low 进程） | `<spike>/.data/xifeng.db` |
+| 5 | 源码形态且 `%LOCALAPPDATA%` 不可写（Low 进程） | `<python>/.data/xifeng.db` |
 
 为什么优先 `%LOCALAPPDATA%` 而不是 exe 同级：装到 `Program Files` 时 exe 目录不可写；
 而且**升级会整目录替换**，历史会跟着丢。第 4/5 条只是保底（便携版、Low 进程），

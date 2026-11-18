@@ -3,7 +3,7 @@
 把识别文本放进**当前光标位置**，不抢焦点。默认策略（`auto`）先走键盘，
 确认目标没吃下按键时才动剪贴板。
 
-实现基准：`spike/xifeng/inject.py`；Rust 侧 `ime-inject` 必须等价。
+实现基准：`core/xifeng/inject.py`；Rust 侧 `ime-inject` 必须等价。
 
 ## 三种策略
 
@@ -100,7 +100,7 @@ ALT 技巧：先模拟 `ALT` 按下/抬起再 `SetForegroundWindow`。直接调�
 |---|---|---|
 | 单测 | `build_events` / `chunked` / `definitely_unchanged` / 假剪贴板 | 代理对、换行映射、分块、兜底判定、恢复/跳过恢复 |
 | 手测 | 记事本、VSCode、浏览器输入框、微信、Windows Terminal | 真实兼容性（spec A0-1） |
-| 自动 | `spike/inject_smoke.py`（Tk 窗口注入后读回比对） | 中文、emoji、混排、换行、长文本 |
+| 自动 | `core/inject_smoke.py`（Tk 窗口注入后读回比对） | 中文、emoji、混排、换行、长文本 |
 | 跨进程 | Medium 进程起 WinForms `Edit`，另一个进程注入后读回 | 剪贴板路径 + 剪贴板恢复 + `auto` 不重复注入 |
 
 手测矩阵 MUST 覆盖：中文、中英混排、emoji、换行、长文本（>500 字）、提权窗口、全屏游戏（预期失败）。

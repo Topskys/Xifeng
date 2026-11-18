@@ -32,7 +32,7 @@ def is_frozen() -> bool:
 
 
 def app_dir() -> Path:
-    """exe 所在目录；源码运行时是 `spike/`。"""
+    """exe 所在目录；源码运行时是 `core/`。"""
     if is_frozen():
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parents[1]
@@ -137,7 +137,7 @@ def data_dir() -> Path:
     1. `IME_DATA_DIR`
     2. `%LOCALAPPDATA%\\Xifeng`（可写时；源码与冻结形态共用）
     3. 冻结形态：`<exe 同级>/data`（便携版、安装到不可写目录时）
-    4. 源码形态：`<spike>/.data`（Low 进程唯一可写的位置）
+    4. 源码形态：`<python>/.data`（Low 进程唯一可写的位置）
 
     为什么先 `%LOCALAPPDATA%` 而不是 exe 同级：安装到 `Program Files` 时 exe 目录
     不可写；而且升级时整个目录会被替换，历史会跟着丢。

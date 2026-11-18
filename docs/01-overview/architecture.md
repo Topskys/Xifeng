@@ -20,7 +20,7 @@
 两进程只通过 **stdio NDJSON** 交互（契约见 `03-core-concepts/ipc-contract.md`），
 不共享内存、不开端口（`--web` 调试模式例外，仅绑定 `127.0.0.1:8642`）。
 
-## 壳内模块（`spike/frontend/src-tauri/src/`）
+## 壳内模块（`apps/desktop/src-tauri/src/`）
 
 | 文件 | 职责 | 关键约束 |
 |---|---|---|
@@ -32,7 +32,7 @@
 | `autostart.rs` | 写 `HKCU\...\Run\Xifeng`，删旧值 `VoiceIME` | 只写 HKCU，免 UAC |
 | `main.rs` | 窗口（主界面 + `?window=overlay`）、命令注册、启动预热 | 模式切换在**下一次会话**生效 |
 
-## Python 侧模块（`spike/xifeng/`）
+## Python 侧模块（`core/xifeng/`）
 
 | 文件 | 职责 | 说明 |
 |---|---|---|

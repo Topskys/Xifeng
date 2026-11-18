@@ -1,4 +1,4 @@
-"""把 Python 核心打成 sidecar，供 Tauri 安装包内嵌。
+﻿"""把 Python 核心打成 sidecar，供 Tauri 安装包内嵌。
 
 和 `packaging/build.py` 的区别：
 - `build.py` 打的是**完整可双击产品**（含 GUI/托盘，独立可用）；
@@ -29,12 +29,12 @@ import sys
 import time
 from pathlib import Path
 
-SPIKE_DIR = Path(__file__).resolve().parents[1]
-REPO = SPIKE_DIR.parent
-sys.path.insert(0, str(SPIKE_DIR))
+CORE_DIR = Path(__file__).resolve().parents[1]
+REPO = CORE_DIR.parent
+sys.path.insert(0, str(CORE_DIR))
 from xifeng import paths  # noqa: E402  模型统一根（D15）
-ENTRY = SPIKE_DIR / "run_spike.py"
-OUT = SPIKE_DIR / "frontend" / "src-tauri" / "resources" / "core"
+ENTRY = CORE_DIR / "run_spike.py"
+OUT = REPO / "apps" / "desktop" / "src-tauri" / "resources" / "core"
 NAME = "Xifeng-Core"
 
 
@@ -45,7 +45,7 @@ def build(work: Path, clean: bool) -> Path:
         "--onedir",
         "--console",
         "--noconfirm",
-        "--paths", str(SPIKE_DIR),
+        "--paths", str(CORE_DIR),
         "--distpath", str(OUT),
         "--workpath", str(work),
         "--specpath", str(work),
@@ -70,7 +70,7 @@ def build(work: Path, clean: bool) -> Path:
         cmd.insert(3, "--clean")
     print("[core] " + " ".join(cmd))
     t0 = time.perf_counter()
-    rc = subprocess.call(cmd, cwd=str(SPIKE_DIR))
+    rc = subprocess.call(cmd, cwd=str(CORE_DIR))
     if rc != 0:
         raise SystemExit(f"[core] PyInstaller 失败，退出码 {rc}")
     print(f"[core] PyInstaller 完成，用时 {time.perf_counter() - t0:.1f}s")
@@ -226,7 +226,7 @@ def main() -> int:
     else:
         print("[core] 默认不带模型（统一根提供；--with-models 可打离线包）")
     print(f"[core] 产物 {app}（{size_of(app):.1f} MB）")
-    print("[core] 下一步：cd spike/frontend && pnpm tauri build（会把它打进安装包）")
+    print("[core] 下一步：仓库根跑 pnpm tauri:build（会把它打进安装包）")
     return 0
 
 

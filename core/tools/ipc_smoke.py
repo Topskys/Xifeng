@@ -15,8 +15,8 @@ import sys
 import time
 from pathlib import Path
 
-SPIKE = Path(__file__).resolve().parents[1]
-ENTRY = SPIKE / "run_spike.py"
+CORE_DIR = Path(__file__).resolve().parents[1]
+ENTRY = CORE_DIR / "run_spike.py"
 
 
 def main() -> int:

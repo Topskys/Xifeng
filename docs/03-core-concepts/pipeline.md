@@ -2,7 +2,7 @@
 
 一次输入从按键到出字，经过哪些状态、在哪里打点、出错往哪走。
 
-实现基准：`spike/xifeng/pipeline.py`（M0 顺序链路）；Rust 侧 `crates/ime-core`。
+实现基准：`core/xifeng/pipeline.py`（M0 顺序链路）；Rust 侧 `crates/ime-core`。
 
 ## 状态机
 

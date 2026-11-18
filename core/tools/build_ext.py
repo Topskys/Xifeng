@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]  # 仓库根目录
 MANIFEST = ROOT / "crates" / "ime-py" / "Cargo.toml"
@@ -47,6 +48,17 @@ def find_cargo() -> str | None:
     return None
 
 
+def _temp_usable(path: str | None) -> bool:
+    """探测目录能否建临时文件（默认 %TEMP% 在本机是只读的，G35）。"""
+    if not path:
+        return False
+    try:
+        with tempfile.TemporaryFile(dir=path):
+            return True
+    except OSError:
+        return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--release", action="store_true", help="用 release profile 构建")
@@ -63,15 +75,18 @@ def main() -> int:
         return 1
 
     env = dict(os.environ)
-    # TEMP 优先级：调用方已设 → 仓库内 .rust-temp → D:\env\tmp。
-    # 本机相对这两处写普通文件都行，但 link.exe 要建带显式安全描述符的临时文件，
-    # 只有仓库内目录实测能过（G35）。
-    if "TEMP" not in os.environ:
-        repo_tmp = ROOT / ".rust-temp"
-        if repo_tmp.exists():
+    # TEMP 优先级：调用方已设**且可写** → 仓库内 .cache/rust-temp（自动创建）→ D:\env\tmp。
+    # 默认 %TEMP% 在本机是只读的，但环境变量照样有值，所以只看「变量是否存在」不够——
+    # 必须探测可写性，否则 link.exe 会 LNK1104 打不开临时文件（G35）。
+    if not _temp_usable(env.get("TEMP")):
+        repo_tmp = ROOT / ".cache" / "rust-temp"
+        try:
+            repo_tmp.mkdir(parents=True, exist_ok=True)
             env["TEMP"] = env["TMP"] = str(repo_tmp)
-        elif TEMP_FALLBACK.exists():
-            env["TEMP"] = env["TMP"] = str(TEMP_FALLBACK)
+        except OSError:
+            if TEMP_FALLBACK.exists():
+                env["TEMP"] = env["TMP"] = str(TEMP_FALLBACK)
+        print(f"[build_ext] TEMP -> {env.get('TEMP')}")
     # 只在默认位置不可用时才覆盖，避免干扰正常装机
     if RUSTUP_HOME.exists() and "RUSTUP_HOME" not in env:
         env["RUSTUP_HOME"] = str(RUSTUP_HOME)

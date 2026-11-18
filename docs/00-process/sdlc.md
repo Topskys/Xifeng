@@ -1,4 +1,4 @@
-﻿# Voice IME 开发流程（本项目执行版）
+# Voice IME 开发流程（本项目执行版）
 
 > 这是**每天真正照着做**的流程文档，不是通用理论。
 > 通用范式见：[SDLC 人机协同范式](../reference/ai-native-sdlc-playbook.md)（参考用，不必每次读）
@@ -85,7 +85,7 @@ G0 意图 ──→ G1 契约 ──→ G2 计划 ──→ G3 可运行证据 �
 ## 3. 工件与目录
 
 ```
-voice-ime/                         # 仓库根只放 AGENTS.md + 代码，文档一律进 docs/
+Xifeng/                         # 仓库根只放 AGENTS.md + 代码，文档一律进 docs/
 ├── AGENTS.md                 # 常驻上下文（≤1 页）
 ├── docs/
 │   ├── llms.txt              # 文档导航入口
@@ -101,30 +101,34 @@ voice-ime/                         # 仓库根只放 AGENTS.md + 代码，文档
 │   ├── 04-reference/         # ipc-protocol / config / metrics
 │   ├── 05-gotchas.md         # 坑位清单
 │   └── reference/            # 原始素材（闲聊.md）
-├── .claude/
-│   ├── settings.json         # 3 个 hook
-│   ├── hooks/
-│   ├── skills/               # 4 个 skill
-│   └── agents/               # verifier / bench-watch
-├── spike/                    # M0 Python 验证（uv 项目）
+├── core/                   # Python 核（uv 项目）：xifeng/ tests/ tools/ packaging/
+│   ├── xifeng/               # asr / correction / vad / postprocess / store / ipc
+│   ├── tests/                # pytest 用例（330 个）
+│   ├── tools/                # build_ext.py / core_smoke.py / dev-env.cmd
+│   └── packaging/            # build_core.py（sidecar）/ build.py（PyInstaller）
 ├── crates/
-│   ├── ime-core/             # 状态机 + Trace
-│   ├── ime-audio/            # cpal + 环形缓冲
-│   ├── ime-infer/            # PyO3 边界
-│   ├── ime-inject/           # SendInput
-│   └── ime-service/          # 主进程
-├── python/ime_infer/         # asr.py / correct.py
-├── gui/                      # Tauri 2
-├── models/                   # gitignore，manifest.yaml + 校验和
-├── tests/golden/             # 固定音频 + expected.json
-└── benches/                  # 延迟基准
+│   ├── ime-post/             # 文本规则（与 core/xifeng/postprocess.py 等价）
+│   ├── ime-vad/              # VAD 算法（与 core/xifeng/vad.py 等价）
+│   └── ime-py/               # PyO3 边界：Python 签名 ↔ Rust
+├── apps/
+│   └── desktop/              # Tauri 壳 + Web 五页（pnpm 包 @xifeng/desktop）
+│       ├── src/              # React 页面
+│       └── src-tauri/        # Rust 壳：hotkey / voice / inject / py(IPC)
+└── packages/                 # 预留共享 TS 包
 ```
+
+> ⚠ 上面这棵树是 **M0 计划期的目标态**（当时打算 `gui/` + `crates/ime-core..ime-service`
+> + `core/ime_infer/` + 仓库内 `models/`）。实现走了另一条路（D6 推迟 Rust、D16 触发链进壳、
+> D15 模型移出仓库），**实际布局以根 `AGENTS.md`「目录约定」为准**：
+> `apps/desktop/`（Tauri 壳 + Web UI）、`core/`（Python 核）、`crates/`（仅 ime-post / ime-vad / ime-py）。
+> 模型在 `%LOCALAPPDATA%\Xifeng\models`，不在仓库。
 
 ### 工件规则
 
 - `intent.md` / `spec.md` / `plan.md` 都进 git，改动即历史
 - **plan 与实现不一致时，在同一个 commit 改 plan**
-- `models/` 只提交 `manifest.yaml`（名称、URL、sha256、大小、量化方式）
+- 模型不进仓库（D15，统一根 `%LOCALAPPDATA%\Xifeng\models`）；下载清单记在
+  `core/fetch_model.py` 的参数里，不落 `models/manifest.yaml`
 - 任何超过 10MB 的文件不提交（hook 强制）
 
 ---
@@ -139,7 +143,7 @@ voice-ime/                         # 仓库根只放 AGENTS.md + 代码，文档
 ## 命令
 - 编译: cargo build --workspace
 - 测试: cargo test --workspace
-- Python: pytest python/
+- Python: pytest core/
 - BENCH: cargo run -p benches --release （输出各阶段 P50/P95）
 - 全量验证: ./verify.ps1 （test + bench + golden audio）
 
@@ -150,7 +154,7 @@ voice-ime/                         # 仓库根只放 AGENTS.md + 代码，文档
 - 端到端 P95 退化超过 50ms 视为回归，必须说明原因
 
 ## 架构
-- ime-service(主进程) --PyO3--> python/ime_infer
+- ime-service(主进程) --PyO3--> core/ime_infer
 - 状态机: Idle→Recording→Decoding→Correcting→Injecting
 - 每次输入产生一条 Trace（环形存最近 100 条）
 
@@ -334,7 +338,7 @@ tests/golden/
 
 ## 11. 现在就开始的三件事
 
-1. **把 `voice-ime/docs/reference/闲聊.md` 蒸馏成 `intent.md`**（半页）——135KB 聊天记录不是工件，是原料。
+1. **把 `Xifeng/docs/reference/闲聊.md` 蒸馏成 `intent.md`**（半页）——135KB 聊天记录不是工件，是原料。
 2. **写 `spec.md` 的 §Interface 段**：Rust→Python 的 `transcribe(pcm: &[i16], sample_rate: u32) -> Result<Transcript, ImeError>`，含超时、错误码、内存所有权。
 3. **立 M0 骨架**：`ime-audio` 能录 → `ime-infer` 能转 → `ime-inject` 能打。先不要 VAD，不要纠错，不要 GUI。
 

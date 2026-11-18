@@ -5,7 +5,7 @@ Tauri 要 ~6GB Rust 工具链（D6 推迟）。Edge `--app=URL` 是无地址栏�
 WebView2 由系统自带，宿主保持纯 Python。
 
 - 服务只绑定 127.0.0.1，数据不出本机（AGENTS 隐私约束）
-- 前端构建产物：源码 `spike/frontend/dist`；冻结 `<exe 同级>/frontend`
+- 前端构建产物：源码 `apps/desktop/dist`；冻结 `<exe 同级>/frontend`
 - API 全部 JSON；错误以 500 + {"error": ...} 返回
 """
 
@@ -63,7 +63,8 @@ def find_browser() -> str | None:
 def front_dist() -> Path:
     if paths.is_frozen():
         return paths.app_dir() / "frontend"
-    return Path(__file__).resolve().parents[1] / "frontend" / "dist"
+    # 源码形态：仓库根/apps/desktop/dist（webgui.py → xifeng/ → core/ → 仓库根）
+    return Path(__file__).resolve().parents[2] / "apps" / "desktop" / "dist"
 
 
 # ---------------------------------------------------------------- 与 gui.py 同逻辑的只读助手（不依赖 tkinter）

@@ -79,7 +79,7 @@ def main() -> int:
     ap.add_argument(
         "--out",
         type=Path,
-        default=Path(__file__).resolve().parents[1] / "frontend" / "src-tauri" / "icons",
+        default=Path(__file__).resolve().parents[2] / "apps" / "desktop" / "src-tauri" / "icons",
     )
     args = ap.parse_args()
     export(master(), args.out)

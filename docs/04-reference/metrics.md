@@ -1,6 +1,6 @@
 # Trace 与统计口径
 
-本文件定义一次输入的可观测数据。**字段名即契约**：spike（Python）、Rust 侧序列化、GUI 统计页三者必须一致。
+本文件定义一次输入的可观测数据。**字段名即契约**：Python 核、Rust 侧序列化、GUI 统计页三者必须一致。
 
 ## 一次输入 = 一条 Trace
 
@@ -54,7 +54,7 @@
 
 | 阶段 | 做法 |
 |---|---|
-| M0（spike） | JSONL 逐行追加，默认关闭，`--trace path` 打开 |
+| M0（Python 核） | JSONL 逐行追加，默认关闭，`--trace path` 打开 |
 | M1（当前） | **SQLite**（`history/settings`）+ 可选 JSONL；默认开，`--no-db` 关 |
 | M3 | GUI 读同一个库，保留期可配 |
 
@@ -73,7 +73,7 @@ CER = 编辑距离(参考文本, 识别文本) / len(参考文本)
 
 | 指标 | 含义 | 谁算 |
 |---|---|---|
-| `CER` | 单句字错率 | `spike/quality_check.py` |
+| `CER` | 单句字错率 | `core/quality_check.py` |
 | 平均 CER | 5 句固定文本的算术平均 | 同上 |
 | 完全正确句数 | CER = 0 的句子数 | 同上 |
 
@@ -92,7 +92,7 @@ CER = 编辑距离(参考文本, 识别文本) / len(参考文本)
 3. **语言 MUST 固定 `zh`**：`auto` 在本机把普通话判成粤语（G22），CER 会从 3% 飙到 25%
 4. **ITN 默认关闭**（G12）：它把"一百五十"写成"150"（表面形式，正文里无法还原），
    且混排英文明显退化（句3 CER 4.5% → 27.3%）。数字改写交给 postprocess 规则
-5. 录音留在 `spike/fixtures/quality/`，可事后用 `--wav-dir` 复算同一批次
+5. 录音留在 `core/fixtures/quality/`，可事后用 `--wav-dir` 复算同一批次
 
 ### 实测（2026-10-29，5 句真人录音，4.6–8.0s）
 
@@ -155,8 +155,8 @@ ASR 原始输出，`--correct` 才把模型纠错计入（与运行时默认一�
 
 | 位置 | 文件 |
 |---|---|
-| spike Trace | `spike/xifeng/trace.py` |
-| spike 质量评估 | `spike/quality_check.py` |
-| 历史 / 统计 | `spike/xifeng/store.py`（`history` 表） |
-| 规则层（已下线） | 原 `spike/xifeng/glossary.py`；现由 `correction.py` 取代 |
+| Python 核 Trace | `core/xifeng/trace.py` |
+| Python 核质量评估 | `core/quality_check.py` |
+| 历史 / 统计 | `core/xifeng/store.py`（`history` 表） |
+| 规则层（已下线） | 原 `core/xifeng/glossary.py`；现由 `correction.py` 取代 |
 | Rust | `crates/ime-core/src/trace.rs`（推迟，见 D6） |

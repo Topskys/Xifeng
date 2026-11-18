@@ -50,6 +50,22 @@
 > 界面：Tauri 内嵌 webview（五页：统计/模型/配置/历史/关于）；`run_spike.py --web` 跑同一套页面的
 > HTTP 模式（只监听 `127.0.0.1:8642`），用于调试与 `--tray` 兜底。
 
+## 目录速查
+
+| 路径 | 内容 |
+|---|---|
+| `apps/desktop/` | Tauri 壳（Rust）+ React 五页界面，pnpm 包 `@xifeng/desktop` |
+| `apps/desktop/src-tauri/` | Rust 壳源码：`hotkey` / `voice` / `inject` / `py`(IPC) |
+| `core/` | Python 核：ASR 与纠错推理运行时（uv 项目，入口 `run_spike.py`） |
+| `core/xifeng/` | Python 模块：`asr` / `correction` / `vad` / `postprocess` / `store` / `ipc` |
+| `core/tests/` | pytest 用例（330 个） |
+| `core/tools/` | 开发脚本：`build_ext.py` / `core_smoke.py` / `dev-env.cmd` |
+| `core/packaging/` | `build_core.py`（sidecar）/ `build.py`（PyInstaller 全量包） |
+| `crates/` | Rust 核心（PyO3 扩展）：`ime-post` 规则 / `ime-vad` 算法 / `ime-py` 转接 |
+
+> Python 核打包后叫 `Xifeng-Core.exe`，装在壳同级 `core/Xifeng-Core/`；
+> `apps/desktop/src-tauri/src/py.rs::core_dir()` 负责定位它（开发态找仓库里的 `core/`）。
+
 ## 原始素材
 
 - `reference/闲聊.md`：与 AI 的设计对话全文，**是原料不是工件**，结论以 `00-process/*` 为准

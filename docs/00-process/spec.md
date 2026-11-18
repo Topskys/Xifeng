@@ -6,7 +6,7 @@ Scope: **仅 M0**。GUI / 纠错 / 模型热切换不在本文件范围内（见
 
 > **技术路线变更（2026-10-29，D6）**：M0 交付改为 **Python + PyInstaller**，
 > §3/§4 的 Rust + PyO3 目标态保留为后续可选方案；当前实现与验收以
-> `spike/`、`02-guides/packaging.md` 为准。
+> `core/`、`02-guides/packaging.md` 为准。
 >
 > **后续落地（v0.23，2026-10-30）**：纠错已实现为「本地 Qwen2.5-0.5B + 守卫，默认关」
 > （`correction.py`，G32），术语表方案已下线。本文件 §1/§9 仍按 M0 当初的范围书写，
@@ -89,7 +89,7 @@ Idle ──hotkey down──▶ Recording ──hotkey up──▶ Decoding ─�
 | `ime-inject` | Rust | 焦点快照 + SendInput | ✅ |
 | `ime-hotkey` | Rust | 全局热键（rdev，Ctrl 长按 + Esc 取消） | ✅ |
 | `ime-service` | Rust | 主进程，串联以上 | ✅ |
-| `python/ime_infer` | Python | SenseVoice 推理 | ✅（含 mock 后端） |
+| `core/ime_infer` | Python | SenseVoice 推理 | ✅（含 mock 后端） |
 | GUI | Tauri | 统计/配置 | ❌ M3 |
 | 纠错 | Rust+Python | 本地 LLM + 守卫（默认关） | ❌ M2（Python 版已落地于 `correction.py`） |
 
@@ -100,7 +100,7 @@ Idle ──hotkey down──▶ Recording ──hotkey up──▶ Decoding ─�
 ### 4.1 Rust → Python
 
 ```python
-# python/ime_infer/asr.py
+# core/ime_infer/asr.py
 
 def load(model_dir: str, threads: int = 4, backend: str = "auto") -> None:
     """加载模型并完成 warmup。重复调用是幂等的。"""
@@ -158,11 +158,11 @@ pub fn inject(text: &str, snap: &FocusSnapshot, cfg: &InjectConfig) -> Result<In
 ## 5. 数据与存储
 
 > 2026-10-29 更新（撤销偏离 D3）：用户要求"有数据的地方用 SQLite"，已落地
-> `spike/xifeng/store.py`，详见 `03-core-concepts/storage.md`。
+> `core/xifeng/store.py`，详见 `03-core-concepts/storage.md`。
 
 - 配置：M1 落在 SQLite `settings` 表（`key/value`），不再引入 `config.toml`
 - 历史/统计/设置：`%LOCALAPPDATA%/Xifeng/xifeng.db`（WAL；
-  Low 进程回退 `<spike>/.data`；冻结形态不可写时回退 `<exe 同级>/data`）
+  Low 进程回退 `<python>/.data`；冻结形态不可写时回退 `<exe 同级>/data`）
 - Trace：仍可写 `trace.jsonl`（`--trace`），但 SQLite `history` 是主存储；
   **两者都不含音频**，文本受 `--no-store-text` 控制
 - 模型：`<repo>/models/`，通过环境变量 `IME_MODELS_DIR` 覆盖

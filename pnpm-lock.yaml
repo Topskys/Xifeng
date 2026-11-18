@@ -6,7 +6,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  apps/desktop:
     dependencies:
       '@tailwindcss/vite':
         specifier: ^4.3.3

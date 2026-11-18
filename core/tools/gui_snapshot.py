@@ -17,7 +17,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from xifeng import gui  # noqa: E402
 
-OUT = Path(os.environ.get("XIFENG_SHOT_DIR") or os.environ.get("VOICEIME_SHOT_DIR") or r"D:\project\workspace\voice-ime\.shots")
+OUT = Path(
+    os.environ.get("XIFENG_SHOT_DIR")
+    or os.environ.get("VOICEIME_SHOT_DIR")
+    or Path(__file__).resolve().parents[2] / ".shots"
+)
 OUT.mkdir(parents=True, exist_ok=True)
 
 

@@ -4,7 +4,7 @@
 
 当前交付形态是 **Tauri 壳（`xifeng.exe`）+ Python sidecar（`Xifeng-Core`）**（`plan.md` D14/D16）：
 热键、采集、VAD、后处理、注入、浮窗、托盘都在壳里；Python 只做 ASR 与可选纠错。
-`spike/` 放 Python 运行时与源码，`crates/` 放 PyO3 扩展。
+`core/` 放 Python 运行时与源码，`apps/desktop/` 放 Tauri 壳，`crates/` 放 PyO3 扩展。
 
 ## A. 用安装包（不需要开发环境）
 
@@ -17,7 +17,7 @@
 
 ## B. 源码路线（开发者）
 
-以下 0–10 步都在 `spike/` 里执行。
+以下 0–10 步都在 `core/` 里执行。
 
 ### 0. 前提
 
@@ -34,11 +34,11 @@
 ### 1. 装环境（约 20 秒）
 
 ```bash
-cd voice-ime/spike
+cd Xifeng/python
 uv sync
 ```
 
-`uv` 会创建 `spike/.venv`（Python 3.11），并按 `pyproject.toml` 从清华镜像装依赖。
+`uv` 会创建 `core/.venv`（Python 3.11），并按 `pyproject.toml` 从清华镜像装依赖。
 
 ### 2. 验证代码没坏（约 30 秒）
 
@@ -202,7 +202,7 @@ uv run python quality_check.py
 ### 9. 看历史 / 统计 / 改设置
 
 数据都在一个 SQLite 文件里（`%LOCALAPPDATA%\Xifeng\xifeng.db`；
-Low 进程回退 `spike/.data`）。见 `03-core-concepts/storage.md`。
+Low 进程回退 `core/.data`）。见 `03-core-concepts/storage.md`。
 
 ```bash
 uv run python run_spike.py --stats              # 次数 / 成功率 / P50 / P95
@@ -220,8 +220,8 @@ uv run python run_spike.py --web --tab config    # 纠错开关、清理规则�
 ```
 
 Web 界面是**独立进程**：本地只监听 `127.0.0.1:8642`，用系统 Edge 的 `--app` 打开
-无地址栏窗口；窗口关闭 30s 后服务自动退出。前端已构建到 `frontend/dist`，
-改了 `frontend/src` 要重新 `vite build`（见 `05-gotchas.md` G31）。
+无地址栏窗口；窗口关闭 30s 后服务自动退出。前端已构建到 `apps/desktop/dist`，
+改了 `apps/desktop/src` 要重新 `vite build`（见 `05-gotchas.md` G31）。
 只读同一个 SQLite；设置改完要重启托盘进程才生效。
 
 > `--gui` 仍能打开旧版 tkinter 四页窗口（无「关于」页），仅作兜底；
@@ -242,7 +242,7 @@ uv run python run_spike.py --autostart off
 - `--tray` 等于 `--ptt --times 0`：一直等热键，直到菜单「退出」；默认按需开麦，不占设备
 - 菜单里的页面都开 Web 窗口（`--web --tab`）；已有服务时只开窗口，不重复监听端口
 - 控制台被隐藏后，日志在 `%LOCALAPPDATA%\Xifeng\xifeng.log`
-  （源码 Low 进程回退 `spike/.data/xifeng.log`）
+  （源码 Low 进程回退 `core/.data/xifeng.log`）
 - 只允许一个托盘实例；重复启动会直接退出（命名 Mutex）
 
 > `--tray` 是 Python 侧的调试入口；正式安装版由壳直接拉起 `Xifeng-Core --ipc`，

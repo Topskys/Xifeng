@@ -592,9 +592,11 @@ fn python_exe() -> OsString {
 
 /// Python 核心所在目录（`run_spike.py` 的父目录）。
 ///
-/// 优先 `XIFENG_CORE_DIR`；打包态找 exe 同级 `python/`；开发态从
-/// `CARGO_MANIFEST_DIR` 往上找第一个含 `run_spike.py` 的目录——这样壳放在
-/// `spike/src-tauri` 还是 `spike/frontend/src-tauri` 都不用改代码。
+/// 优先 `XIFENG_CORE_DIR`；打包态找 exe 同级 `core/`；开发态沿
+/// `CARGO_MANIFEST_DIR` 往上找，三种落法都认：
+/// - 祖先目录本身就有 `run_spike.py`（壳与 Python 同级的旧布局）
+/// - 祖先目录下的 `core/run_spike.py`（现行 `apps/desktop/src-tauri` + `core/`）
+/// - 祖先目录下的 `python/run_spike.py`（`python/` 时代的旧布局，只读兼容）
 fn core_dir() -> PathBuf {
     if let Some(dir) = env_compat("XIFENG_CORE_DIR", "VOICEIME_CORE_DIR") {
         return PathBuf::from(dir);
@@ -603,11 +605,13 @@ fn core_dir() -> PathBuf {
     if let Ok(exe) = env::current_exe() {
         if let Some(dir) = exe.parent() {
             let candidates = [
-                dir.join("python"),
-                dir.join("resources").join("python"),
+                dir.join("core"),
+                dir.join("resources").join("core"),
                 // sidecar 的 onedir：`core/Xifeng-Core/`（build_core.py 把
                 // run_spike.py 判据放这里）
                 dir.join("core").join("Xifeng-Core"),
+                // `python/` 时代的旧布局，只读兼容
+                dir.join("python"),
                 dir.to_path_buf(),
             ];
             for cand in candidates {
@@ -623,7 +627,18 @@ fn core_dir() -> PathBuf {
         if anc.join("run_spike.py").is_file() {
             return anc.to_path_buf();
         }
+        for nested_name in ["core", "python"] {
+            let nested = anc.join(nested_name);
+            if nested.join("run_spike.py").is_file() {
+                return nested;
+            }
+        }
     }
-    let fallback = manifest_dir.join("..").join("..");
+    let fallback = manifest_dir.join("..").join("..").join("..");
+    let fallback = if fallback.join("core").join("run_spike.py").is_file() {
+        fallback.join("core")
+    } else {
+        manifest_dir.join("..").join("..")
+    };
     fallback.canonicalize().unwrap_or_else(|_| fallback)
 }

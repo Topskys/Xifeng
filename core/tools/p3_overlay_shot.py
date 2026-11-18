@@ -12,6 +12,7 @@ import base64
 import json
 import sys
 import time
+from pathlib import Path
 import urllib.request
 
 sys.path.insert(0, "tools")
@@ -39,7 +40,11 @@ def shoot(pages: list[dict], out: str) -> None:
 
 def main() -> int:
     port = sys.argv[1] if len(sys.argv) > 1 else "9334"
-    out = sys.argv[2] if len(sys.argv) > 2 else r"D:\project\workspace\voice-ime\.tauri-work\overlay.png"
+    out = (
+        sys.argv[2]
+        if len(sys.argv) > 2
+        else str(Path(__file__).resolve().parents[2] / ".cache" / "tauri-work" / "overlay.png")
+    )
     pages = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=8))
     try:
         print("down:", voice_test(port, "down"))

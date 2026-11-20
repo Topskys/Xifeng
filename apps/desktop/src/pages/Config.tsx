@@ -126,14 +126,14 @@ export function ConfigPage({
 
       <div>
         <Group>
-          <Row title="触发热键" desc="全局键；左右互斥，只认设置的那一侧（默认右 Ctrl）">
+          <Row title="触发热键" desc="左右互斥，（默认右 Ctrl）">
             <SimpleSelect
               options={sel(HOTKEY_LABEL)}
               value={s.hotkey}
               onValueChange={(v) => patch({ hotkey: v })}
             />
           </Row>
-          <Row title="录音段切分" desc="对按住说话的录音做 VAD 双阈值切分与无效段过滤；仍需按住热键，不是免按键">
+          <Row title="录音段切分" desc="对录音做 VAD 双阈值切分与无效段过滤">
             <Segmented
               options={[
                 { label: "关闭", value: "ptt" },
@@ -161,7 +161,7 @@ export function ConfigPage({
           </Row>
           <Row
             title="识别语言"
-            desc="语音转文字的目标语言；切换后模型重载（约几秒），保存即生效"
+            desc="语音转文字的目标语言，切换后模型重载（约几秒），保存即生效"
           >
             <SimpleSelect
               options={sel(LANGUAGE_LABEL)}

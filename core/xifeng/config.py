@@ -110,6 +110,9 @@ def _write_json_atomic(path: Path, data: dict[str, Any]) -> bool:
                 pass
 
 
+# ---------------------------------------------------------------- 读写入口
+
+
 def load_raw() -> tuple[dict[str, Any], str]:
     """读原始配置字典。
 

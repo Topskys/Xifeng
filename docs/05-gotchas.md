@@ -1135,3 +1135,47 @@ stderr 默认是 gbk；壳按 UTF-8 逐行读，第一行中文就 `stream did n
 - `SetWindowsHookExW(WH_KEYBOARD_LL, proc, GetModuleHandleW(NULL), 0)` 在 Python 里
   返回 0 且 `GetLastError()=126`（`ERROR_MOD_NOT_FOUND`）；LL 钩子必须传 `hMod=NULL`
   （Rust 侧 `hotkey.rs` 传的正是 `None`，所以壳这边没这个毛病）
+
+## G45 "本地 int8 比官方 demo 漏词"多半是喂错了字节，不是量化
+
+现象（2026-11-21，官方 ModelScope 示例音频 zh/en/ja/ko/yue 五语种对比）：
+本地 int8 输出"缺词/乱码"，官方 demo 同一段音频却完美——直觉会指向
+**量化** 或 **后处理删词**，但都不是。
+
+真根因：`asr.transcribe()` 吃的是**裸 PCM 字节**，而诊断脚本
+`open(path,"rb").read()` 把**整个 WAV 文件**（含 44 字节 RIFF 头）或
+**MP3 压缩帧**直接喂了进去。`np.frombuffer(..., int16)` **不报错**，
+只是把文件头当成采样、把压缩帧当成波形——输出自然驴唇不对马嘴。
+
+用 `audio.read_wav()` 正确取帧后，本地 int8 五语种**逐字全中**，与官方
+demo 一致（`temp/official_test/local_diagnosis.json`）：
+
+| 文件 | 本地 int8（itn=0）原始输出 | 漏词 |
+|---|---|---|
+| zh | 开饭时间早上九点至下午五点 | 无 |
+| en | the tribal chieftain called for the boy and presented him with fifty pieces of gold | 无 |
+| ja | うちの中学は弁当制で持っていきない場合は50円の学校販売のパンを買う | 无 |
+| ko | 조 금만 생각 을 하 면서 살 면 훨씬 편할 거야 | 无 |
+| yue | 呢几个字都表达唔到我想讲嘅意思 | 无 |
+
+顺带量到 ITN 的真实差异（官方 demo 开 ITN，本地默认关）：同一段 zh 音频，
+`use_itn=True` 给「开饭时间早上9点至下午5点。」，`False` 给
+「开饭时间早上九点至下午五点」——**词一个都没差**，只差数字写法与句号。
+中英混排 CER 4.5%→27.3% 的历史教训（G12 / metrics.md）仍成立，所以本地
+保持 `use_itn=False` 是对的。
+
+> ⚠ 注意：`metrics.md` 第 4 条写「数字改写交给 postprocess 规则」，但
+> `postprocess.py` 与 `crates/ime-post` 里**都没有**中文数字→阿拉伯数字的规则
+> （`normalize` 只做空格/标点/空白规整）。也就是说关掉 ITN 后，"九点"就
+> 原样注入，不会变成"9点"。要么补这条规则，要么改掉那句文档——本条先如实记录，
+> 不在这里顺手改行为（改后处理必须两边同步 + 跑 parity，见硬约束）。
+
+**教训**：
+1. 怀疑"模型/量化/后处理丢词"之前，先证明**输入字节是对的**。`transcribe`
+   现已加容器魔数校验（RIFF/ID3/fLaC/OggS/FORM），喂错直接 `AsrError` 并
+   指向 `read_wav()`，不再静默出垃圾（`tests/test_asr.py` 守）。
+2. `ValueError: buffer size must be a multiple of element size` 是 MP3 字节
+   被当 PCM 的显式信号；但 WAV 头恰好偶数字节、MP3 帧也常常偶数——
+   **不报错不代表读对了**，这才是最坑的地方。
+3. 语言码要写对：韩语是 `ko`（不是 `ya`），粤语是 `yue`。写错不会报错，
+   只会静默走错语种（与 G22 同类的"看起来跑通了"陷阱）。

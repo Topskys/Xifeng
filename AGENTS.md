@@ -10,7 +10,7 @@ PyInstaller 打包交付。Rust 版推迟（决策见 `docs/00-process/plan.md` 
 # Python 命令在 core/ 下执行（uv 管理环境，Python 3.11，镜像已配清华源）
 cd core
 uv sync                                  # 首次/依赖变更后
-uv run pytest                            # 单测（355 个，约 45s）
+uv run pytest                            # 单测（361 个，约 45s）
 uv run python tools/build_ext.py --release # 编译 Rust 扩展（debug 比 numpy 慢，默认用 release）
 uv run python run_spike.py --help        # 手动跑一次
 uv run python bench.py --n 20            # 输出各阶段 P50/P95（自动判环境档位）

@@ -66,6 +66,37 @@ DEFAULT_LANGUAGE = "zh"
 DEFAULT_USE_ITN = False
 
 
+#: 容器魔数 → 名字。只列**真实麦克风 PCM 几乎不可能以它开头**的那些：
+#: 判定必须保守，误杀一段正常语音的代价比放过一个 WAV 文件大得多。
+_CONTAINER_MAGIC: tuple[tuple[bytes, int, str], ...] = (
+    (b"RIFF", 8, b"WAVE"),      # WAV：44 字节头会被当成采样
+    (b"RIFF", 8, b"WEBP"),      # 少见，但同样是容器
+    (b"FORM", 8, b"AIFF"),      # AIFF
+    (b"FORM", 8, b"8SVX"),
+    (b"fLaC", 0, b""),          # FLAC
+    (b"OggS", 0, b""),          # Ogg / Opus
+    (b"ID3", 0, b""),           # 带标签的 MP3
+)
+
+
+def _container_kind(pcm: bytes) -> str | None:
+    """识别被误当 PCM 传进来的容器字节；不是容器返回 None。"""
+    for magic, offset, extra in _CONTAINER_MAGIC:
+        if pcm.startswith(magic) and (not extra or pcm[offset : offset + len(extra)] == extra):
+            return magic.decode("ascii", "replace")
+    return None
+
+
+def _reject_container(pcm: bytes) -> None:
+    """容器字节显式报错，不静默出垃圾（见 `transcribe` 文档）。"""
+    kind = _container_kind(pcm)
+    if kind is not None:
+        raise AsrError(
+            f"transcribe 收到的是音频容器（{kind}），不是裸 PCM。"
+            "请用 xifeng.audio.read_wav() 取帧；MP3 需先解码成 16kHz 单声道 i16。"
+        )
+
+
 def load(
     model_dir: str | None = None,
     threads: int = DEFAULT_THREADS,
@@ -136,9 +167,17 @@ def warmup() -> None:
 
 
 def transcribe(pcm: bytes, sample_rate: int = 16000) -> dict:
-    """pcm 为小端 i16 单声道字节流。空文本是合法结果，不抛异常。"""
+    """pcm 为小端 i16 单声道字节流。空文本是合法结果，不抛异常。
+
+    容器字节（WAV/MP3）MUST NOT 直接进来：`np.frombuffer` 会把 RIFF 头
+    当成采样、把压缩帧当成 PCM，**不报错**，只是吐出一段驴唇不对马嘴的
+    文本——排查时最费时间的就是这种"看起来跑通了"的输入错误。
+    读文件请用 `xifeng.audio.read_wav()`。
+    """
     if _state.backend == "":
         load(backend="auto")
+
+    _reject_container(pcm)
 
     t0 = time.perf_counter()
 

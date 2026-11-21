@@ -1,0 +1,57 @@
+#!/bin/sh
+# 提交前校验提交标题（husky commit-msg 钩子）
+#   1) 符合 Conventional Commits：<type>(<scope>): <subject>（scope 可选）
+#   2) 标题 < 50 字（按 Unicode 字符算：中文/全角 1 字 = 1，emoji 1 字 = 1）
+# 生效：pnpm install 会自动跑 prepare 装钩子；手动则 npx husky
+# 破例：git commit --no-verify
+# 手测：sh .husky/commit-msg <消息文件>
+
+TYPES='feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert'
+HEADER_RE="^($TYPES)(\([A-Za-z0-9._/-]+\))?!?: [^[:space:]]"
+
+if [ ! -f "${1:-}" ]; then
+  echo "用法: $0 <消息文件>" >&2
+  exit 2
+fi
+
+# 丢 CR（GUI 客户端可能写 CRLF）、丢 `git commit -v` 附带的 diff、去注释行与首尾空行
+header=$(cat "$1" | tr -d '\r' | sed -e '/^-- >8 --$/,$d' | git stripspace -s | sed -n '1p')
+
+if [ -z "$header" ]; then
+  echo "[X] 提交信息为空" >&2
+  exit 1
+fi
+
+# git 自己生成的消息放行
+case "$header" in
+  'Merge '* | 'Revert '* | 'fixup! '* | 'squash! '*)
+    exit 0
+    ;;
+esac
+
+# 字符数 = UTF-8 字节数 - 续字节数(0x80-0xBF)。
+# Git for Windows 的 sh 是 C locale，wc -m / ${#var} 都按字节算，直接用会把中文当 3 字。
+bytes=$(printf '%s' "$header" | wc -c | tr -cd '0-9')
+cont=$(printf '%s' "$header" | tr -cd '\200-\277' | wc -c | tr -cd '0-9')
+len=$((bytes - cont))
+
+why=''
+if ! printf '%s\n' "$header" | grep -Eq "$HEADER_RE"; then
+  why='格式不符合 Conventional Commits'
+fi
+if [ "$len" -ge 50 ]; then
+  why="${why:+$why；}标题 $len 字，必须 < 50 字"
+fi
+
+if [ -z "$why" ]; then
+  exit 0
+fi
+
+echo '' >&2
+echo "[X] 提交被拒：$why" >&2
+echo "    标题：$header" >&2
+echo "    格式：<type>(<scope>): <subject>   type: $TYPES" >&2
+echo "    例子：feat(hooks): 增加提交信息校验钩子" >&2
+echo "    破例：git commit --no-verify" >&2
+echo '' >&2
+exit 1

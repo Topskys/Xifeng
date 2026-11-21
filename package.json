@@ -11,6 +11,10 @@
     "check:transport": "pnpm --filter @xifeng/desktop check:transport",
     "tauri": "pnpm --filter @xifeng/desktop tauri",
     "tauri:dev": "pnpm --filter @xifeng/desktop tauri:dev",
-    "tauri:build": "pnpm --filter @xifeng/desktop tauri:build"
+    "tauri:build": "pnpm --filter @xifeng/desktop tauri:build",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
   }
 }

@@ -1,0 +1,2 @@
+# 钩子脚本必须是 LF：Git 的 sh 遇到 CRLF 会把行尾 \r 当参数的一部分，钩子直接跑不起来。
+.husky/*  text eol=lf

@@ -10,7 +10,7 @@ PyInstaller 打包交付。Rust 版推迟（决策见 `docs/00-process/plan.md` 
 # Python 命令在 core/ 下执行（uv 管理环境，Python 3.11，镜像已配清华源）
 cd core
 uv sync                                  # 首次/依赖变更后
-uv run pytest                            # 单测（346 个，约 40s）
+uv run pytest                            # 单测（355 个，约 45s）
 uv run python tools/build_ext.py --release # 编译 Rust 扩展（debug 比 numpy 慢，默认用 release）
 uv run python run_spike.py --help        # 手动跑一次
 uv run python bench.py --n 20            # 输出各阶段 P50/P95（自动判环境档位）
@@ -57,7 +57,8 @@ cargo build -p ime-py --release          # 只编译扩展，不装进 venv
 - 剪贴板兜底 MUST 恢复原内容；若期间剪贴板已被改写则 MUST NOT 覆盖
 - 日志禁止记录识别文本全文，只记长度与 outcome
 - 推理 MUST 在独立线程，**禁止** 在音频回调里调用 ASR
-- 不录音时 **禁止** 占用麦克风：默认按下热键才 `LiveMic.start()`，松开后关闭
+- 不录音时 **禁止** 占用麦克风：默认按下热键才 `LiveMic.start()`，松开后关闭；
+  常驻只是用户显式开启的选项（设置「常驻麦克风」/ `resident_mic`，默认关，D24）
 - 后处理（`postprocess`）规则 **禁止** 只改一边：`xifeng/postprocess.py` 是基准，
   `crates/ime-post` 是等价实现，`tests/test_postprocess_parity.py` 必须绿
 - 用户数据 MUST 落 `%LOCALAPPDATA%\Xifeng`（库 `xifeng.db`、日志 `xifeng.log`、
@@ -84,7 +85,9 @@ Python: 仅 ASR/纠错推理运行时（--ipc stdio NDJSON，asr_begin/feed/end/
 D16 后：触发链在壳里，**Python --ptt --tray 语音服务已退役**（spawn_voice_service 已删）；
 托盘两项（显示主界面/退出）、开机自启写注册表值 `Xifeng`（HKCU\...\Run，指向壳 exe）、
 录音浮窗是 `?window=overlay` webview 页（`voice://level` 音量事件）。
-已知限制：设置热更在**下一次语音会话**生效（会话中段不变）；纠错（LLM）与
+已知限制：设置热更分两类（D24）——**构造参数**（语言/线程数/模型目录）在保存时
+经 `AsrRuntime.apply_settings` 立即重建 recognizer；**其余项**在下一次语音会话
+边界生效（会话中段不变）；纠错（LLM）与
 统计/历史已走 IPC（correct/session_record）；G7 提权目标已接反馈链
 （voice://elevated → 主窗口 toast）；voice_test 仅 debug/e2e 构建可用。
 
@@ -103,7 +106,7 @@ Python 签名 ↔ Rust 的转接。Python 侧保留纯 Python 基准实现，两
 - 不要"按下才开流"却又想要零延迟 —— 旧 PortAudio 栈开流有 95–376ms 静默期，
   但壳侧 cpal **实测 play→首回调仅 17–24ms**（2026-11-14 复测），所以
   「按下即开流 + 立刻弹浮窗」本身就是零等待（G23）；想连这 20ms 抖动也消掉，
-  只能在明确接受占麦后加 `--resident-mic`
+  只能让用户显式打开常驻麦克风（默认关，见 D24），**不要替所有人默认开启**
 - 不要指望 VAD 只留 60ms padding —— Silero 起音判定有 100–250ms 延迟，
   首段 MUST 额外留 300ms，否则第一个音节的起音被切（「你好喂」→「好喂」，G39）
 - 不要再提供"左右均可"的热键 —— 左右 MUST 互斥（默认右 Ctrl），旧值

@@ -11,7 +11,29 @@ from pathlib import Path
 import pytest
 
 import run_spike
+from xifeng import settings as user_settings
 from xifeng.store import Store
+
+
+def test_resident_mic_cli_overrides_config_in_both_directions() -> None:
+    assert run_spike.parse_args([]).resident_mic is None
+
+    user_settings.save(None, user_settings.update(user_settings.DEFAULTS, resident_mic=True))
+    args = run_spike.parse_args(["--ptt"])
+    with Store(":memory:") as store:
+        run_spike.apply_user_settings(args, store, ["--ptt"])
+    assert args.resident_mic is True
+
+    args = run_spike.parse_args(["--ptt", "--no-resident-mic"])
+    with Store(":memory:") as store:
+        run_spike.apply_user_settings(args, store, ["--ptt", "--no-resident-mic"])
+    assert args.resident_mic is False
+
+    user_settings.save(None, user_settings.update(user_settings.DEFAULTS, resident_mic=False))
+    args = run_spike.parse_args(["--ptt", "--resident-mic"])
+    with Store(":memory:") as store:
+        run_spike.apply_user_settings(args, store, ["--ptt", "--resident-mic"])
+    assert args.resident_mic is True
 
 
 @pytest.fixture()

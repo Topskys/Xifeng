@@ -169,12 +169,12 @@ def _dispatch(api: Api, runtime: AsrRuntime, method: str, params: object) -> Any
             raise ValueError(f"{method} 不接受参数")
         result = fn()
         if method == "settings_reset":
-            _sync_language(api, runtime)
+            _sync_runtime(api, runtime)
         return result
     if method in _BODY_PARAM:
         result = fn(_as_dict(params, method))
-        if method == "settings_save":
-            _sync_language(api, runtime)
+        if method in ("settings_save", "models_use"):
+            _sync_runtime(api, runtime)
         return result
     args = _keyword_args(fn, method, params)
     for key in ("period", "offset", "limit", "id"):
@@ -183,22 +183,32 @@ def _dispatch(api: Api, runtime: AsrRuntime, method: str, params: object) -> Any
     return fn(**args)
 
 
-def _sync_language(api: Api, runtime: AsrRuntime) -> None:
-    """设置保存后把识别语言同步给运行时。
+def _sync_runtime(api: Api, runtime: AsrRuntime) -> None:
+    """设置保存后把用户设置同步给运行时（P2-② 热更）。
 
-    语言是 recognizer 的**构造参数**，改了必须重建模型才能生效（数秒）。
-    这里在同一次 IPC 调用里做完，用户点「保存」就立刻生效，不必重启。
+    分两类，口径要如实：
 
-    重建失败（模型缺失等）不抛给前端：设置已经存进 JSON 了，
-    运行时退回旧语言继续用——抛错会让前端误以为"保存失败"。
+    - **构造参数**（语言、推理线程数、模型目录）：sherpa 的 recognizer 在
+      构造时就把它们吃掉了，改了必须重建（数秒）。这里在同一次 IPC 调用里
+      做完，用户点「保存」就生效。
+    - **非构造参数**（录音段切分、首尾静音裁剪、模型纠错）：只是每次解码
+      时读的开关，改属性即可，下一次说话生效。
+
+    失败（模型缺失、非法语言）不抛给前端：设置已经存进 JSON 了，
+    运行时保持新配置、下次加载时重试——抛错会让前端误以为"保存失败"。
     """
-    lang = getattr(api.settings, "language", "")
-    if not lang or lang == runtime.language:
-        return
+    s = api.settings
     try:
-        runtime.set_language(lang)
-    except Exception as exc:  # noqa: BLE001 - 换语言失败不该让保存失败
-        _log(f"⚠ 识别语言切换失败（设置已保存，下次会话生效）：{type(exc).__name__}: {exc}")
+        runtime.apply_settings(
+            language=getattr(s, "language", None),
+            threads=getattr(s, "threads", None),
+            model_dir=(getattr(s, "model_dir", "") or None),
+            use_vad=getattr(s, "use_vad", None),
+            trim_silence=getattr(s, "trim_silence", None),
+            model_correct=getattr(s, "model_correct", None),
+        )
+    except Exception as exc:  # noqa: BLE001 - 热更失败不该让保存失败
+        _log(f"⚠ 设置热更失败（已保存，下次启动生效）：{type(exc).__name__}: {exc}")
 
 
 def _error_text(exc: BaseException) -> str:

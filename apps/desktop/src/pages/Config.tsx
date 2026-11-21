@@ -97,7 +97,7 @@ export function ConfigPage({
       refreshBoot({ ...boot, settings: next })
       if (themeChanged) applyTheme(next.theme)
       setDirty(false)
-      showToast(themeChanged ? "已保存 · 主题已切换" : "已保存 · 托盘重启后生效")
+      showToast(themeChanged ? "已保存 · 主题已切换" : "已保存 · 下次说话生效")
     } catch (e) {
       showToast(String(e), false)
     }
@@ -110,12 +110,12 @@ export function ConfigPage({
     applyTheme(next.theme)
     refreshBoot({ ...boot, settings: next })
     setDirty(false)
-    showToast("已恢复默认值 · 托盘重启后生效")
+    showToast("已恢复默认值 · 下次说话生效")
   }
 
   return (
     <div className="p-6 mx-auto w-full max-w-4xl">
-      <PageHeader title="配置" desc="保存在本机 SQLite">
+      <PageHeader title="配置" desc="保存在本机 config.json">
         <Button size="sm" variant="outline" onClick={reset}>
           恢复默认
         </Button>
@@ -142,6 +142,12 @@ export function ConfigPage({
               value={s.use_vad ? "vad" : "ptt"}
               onChange={(v) => patch({ use_vad: v === "vad" })}
             />
+          </Row>
+          <Row
+            title="常驻麦克风"
+            desc="开启后麦克风一直占用、系统录音指示灯常亮，换来按下零开流延迟；默认关闭（按下才开、松开即释放）"
+          >
+            <Switch checked={s.resident_mic} onCheckedChange={(v) => patch({ resident_mic: v })} />
           </Row>
         </Group>
 
@@ -202,7 +208,7 @@ export function ConfigPage({
             desc={
               boot.correction.available
                 ? "启用本地 Qwen2.5-0.5B 自动优化会有延迟+0.5–1.5s"
-                : `纠错模型缺失：把 qwen2.5-0.5b-instruct-q4_k_m.gguf 放到 ${boot.correction.dir}，重启托盘后可用`
+                : `纠错模型缺失：把 qwen2.5-0.5b-instruct-q4_k_m.gguf 放到 ${boot.correction.dir}，重启 Xifeng 后可用`
             }
           >
               <Switch

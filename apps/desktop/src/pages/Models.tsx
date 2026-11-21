@@ -65,7 +65,7 @@ export function ModelsPage({
     try {
       await api.useModel(path);
       refresh();
-      showToast("已切换模型 · 托盘重启后生效");
+      showToast("已切换模型 · 下次说话生效");
     } catch (e) {
       showToast(String(e), false);
     }
@@ -73,7 +73,7 @@ export function ModelsPage({
 
   return (
     <div className="p-6 mx-auto w-full max-w-4xl">
-      <PageHeader title="模型" desc="更换模型后建议重启">
+      <PageHeader title="模型" desc="更换模型后下次说话生效">
         <Button size="sm" variant="ghost" onClick={refresh}>
           <RefreshCw /> 刷新
         </Button>
@@ -152,7 +152,7 @@ export function ModelsPage({
         <div className="text-sm font-semibold">模型目录</div>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
           本版本只支持 SenseVoice 系列（sherpa-onnx）。目录内需要
-          model.int8.onnx（或 model.onnx）与 tokens.txt；换模型后托盘重启生效。
+          model.int8.onnx（或 model.onnx）与 tokens.txt；换模型后下次说话生效。
         </p>
       </Card>
     </div>

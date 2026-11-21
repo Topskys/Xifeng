@@ -21,6 +21,8 @@ export interface Settings {
   download_source: string
   theme: string
   show_popup: boolean
+  /** 常驻麦克风：开启后跨会话保留设备流（指示灯常亮），默认关闭 */
+  resident_mic: boolean
   model_correct: boolean
   popup_color: string
   /** ASR 识别语言：zh | en | ja | ko | yue */

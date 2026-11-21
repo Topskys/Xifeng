@@ -10,7 +10,8 @@
 //! 按住期间：Esc 取消 / 其它键落下=组合键整段丢弃 / 超时 60s 截断
 //! 松开：再收 drain_ms(120ms) 尾音 → 关流 → asr_end → 后处理 → 注入
 //! 按住 <250ms：误触，整段丢弃（不进 ASR）
-//! 不按键时麦克风完全关闭（按需开麦；cpal 实测 play→首回调 ~20ms）
+//! 不按键时麦克风完全关闭（按需开麦；cpal 实测 play→首回调 ~20ms）。
+//! 设置「常驻麦克风」（resident_mic，默认关，D24）开启后才跨会话保留流。
 //! ```
 //!
 //! 与 Python 版的结构差异（等价性不受影响）：
@@ -88,6 +89,22 @@ impl Ring {
         self.tail.store(tail, Ordering::Release);
     }
 
+    /// 常驻会话边界：丢干净置期积压的样本，只保留「按下之后」到达的声音。
+    /// 下一次会话不把闲置期间的旧环境声送进 ASR。
+    /// 只在喂送线程不在跑时调用（它是唯一的消费者）。
+    ///
+    /// 不动 `dropped`：会话结束时要先把它读进日志，计数在 `arm()` 归零
+    /// （按会话统计）。在这里归零会让常驻模式的溢出告警永远是 0。
+    fn clear(&self) {
+        let head = self.head.load(Ordering::Acquire);
+        self.tail.store(head, Ordering::Release);
+    }
+
+    /// 会话开始：丢弃计数归零，日志里的「环形缓冲丢弃 N 样本」只算本次会话。
+    fn reset_dropped(&self) {
+        self.dropped.store(0, Ordering::Relaxed);
+    }
+
     /// 累计丢弃样本数（满则丢新数据，可观测性：会话结束时报进日志）。
     fn dropped_count(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
@@ -101,6 +118,10 @@ struct Mic {
     stream: Mutex<Option<cpal::Stream>>,
     /// 采集开关：begin() 后回调数据进缓冲，end() 后进"只清不喂"收尾态
     collecting: Arc<AtomicBool>,
+    /// 回调写入闸门：按下热键才置真。常驻模式下流一直开着，靠它把闲置期的
+    /// 环境声挡在环形缓冲外（不写=不占容量、不会把旧音频喂进下一次识别）。
+    /// 原子读，不违反「回调里禁止 IO/加锁」。
+    capturing: Arc<AtomicBool>,
     feeder: Mutex<Option<std::thread::JoinHandle<()>>>,
     native_rate: u32,
     native_channels: usize,
@@ -127,21 +148,34 @@ impl Mic {
         self.ring = Arc::new(Ring::new(self.native_rate as usize * self.native_channels * 65));
 
         let ring = Arc::clone(&self.ring);
+        let capturing = Arc::clone(&self.capturing);
         let stream_errors = Arc::clone(&self.stream_errors);
         let err = move |_e| {
             // 音频线程只计数；原因由编排线程读日志（回调里禁止 IO/日志）
             stream_errors.fetch_add(1, Ordering::Relaxed);
         };
+        // 闸门：常驻模式下流一直开着，闲置期不往环形缓冲写（见 `capturing`）。
+        // 按需模式下流本来就只在这次会话期间存在，闸门按下时已置真。
         let stream = match cfg.sample_format() {
             cpal::SampleFormat::I16 => device.build_input_stream(
                 &cfg.config(),
-                move |d: &[i16], _| for &s in d { ring.push(s) },
+                move |d: &[i16], _| {
+                    if !capturing.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    for &s in d {
+                        ring.push(s)
+                    }
+                },
                 err,
                 None,
             ),
             cpal::SampleFormat::F32 => device.build_input_stream(
                 &cfg.config(),
                 move |d: &[f32], _| {
+                    if !capturing.load(Ordering::Relaxed) {
+                        return;
+                    }
                     for &s in d {
                         ring.push((s.clamp(-1.0, 1.0) * 32767.0) as i16);
                     }
@@ -152,6 +186,9 @@ impl Mic {
             cpal::SampleFormat::U16 => device.build_input_stream(
                 &cfg.config(),
                 move |d: &[u16], _| {
+                    if !capturing.load(Ordering::Relaxed) {
+                        return;
+                    }
                     for &s in d {
                         ring.push((s as i32 - 32768) as i16);
                     }
@@ -169,6 +206,8 @@ impl Mic {
     }
 
     /// 开始本次录音：打开喂送闸门并起喂送线程（此后到达的样本都送运行时）。
+    /// 写入闸门（capturing）在按下热键时就由 `arm()` 打开——观察窗内到达的
+    /// 音频已在缓冲里，这里不削句首（G40/G42 口径不变）。
     fn begin(&mut self, bridge: &Arc<PythonBridge>, app: &AppHandle) {
         self.collecting.store(true, Ordering::SeqCst);
         let handle = spawn_feeder(
@@ -182,14 +221,42 @@ impl Mic {
         *self.feeder.lock().unwrap() = Some(handle);
     }
 
-    /// 结束：停止喂送，等喂送线程清空缓冲后退出（不留尾音在环形缓冲里）。
-    fn end(&mut self) {
+    /// 按下热键：清空缓冲并打开写入闸门。
+    /// 本次会话只听到「按下之后」到达的声音：观察窗内的音频留在缓冲里
+    /// （不削句首，G40/G42 口径不变），常驻模式下闲置期的旧音频被丢掉。
+    /// 只在喂送线程不在跑时调用（它是唯一的消费者）。
+    fn arm(&mut self) {
+        self.ring.clear();
+        self.ring.reset_dropped(); // 丢弃计数按会话计（日志在会话结束时读它）
+        self.capturing.store(true, Ordering::SeqCst);
+    }
+
+    /// 松手/作废：关闭写入闸门（常驻模式下流继续开着，但不再往缓冲写）。
+    fn disarm(&mut self) {
+        self.capturing.store(false, Ordering::SeqCst);
+    }
+
+    /// 结束本次喂送：关闸门，等喂送线程清空缓冲后退出；
+    /// 是否释放设备由调用方按模式决定。
+    fn end_feed(&mut self) {
+        self.disarm();
         self.collecting.store(false, Ordering::SeqCst);
-        let stream = self.stream.lock().unwrap().take();
-        drop(stream); // Drop 会停流并释放设备（松手就关，不占麦）
         if let Some(h) = self.feeder.lock().unwrap().take() {
             let _ = h.join();
         }
+    }
+
+    /// 按需模式收尾：停止喂送并释放设备（松手就关，不占麦）。
+    fn end(&mut self) {
+        self.end_feed();
+        self.stop_stream();
+    }
+
+    /// 常驻模式收尾：保留流（指示灯常亮、下次按下零开流延迟），
+    /// 丢掉 drain 之后可能残留的样本，下一次会话从 arm() 之后的新音频开始。
+    fn end_resident(&mut self) {
+        self.end_feed();
+        self.ring.clear();
     }
 
     /// 流是否在运行（按下即开流后跳过会话处的重复开流）。
@@ -340,6 +407,7 @@ fn new_mic() -> Mic {
         ring: Arc::new(Ring::new(SAMPLE_RATE as usize * 65)),
         stream: Mutex::new(None),
         collecting: Arc::new(AtomicBool::new(false)),
+        capturing: Arc::new(AtomicBool::new(false)),
         feeder: Mutex::new(None),
         native_rate: SAMPLE_RATE,
         native_channels: 1,
@@ -360,7 +428,8 @@ fn new_mic() -> Mic {
 /// 一并送进 ASR——观察窗本身**不丢句首**。
 ///
 /// 代价（如实记账）：冷态下浮窗比"麦克风真正开始采集"早 300–650ms。所以浮窗出现
-/// ≠ 已经在采，用户若立刻开口，开头那一小段仍会丢；想彻底消除只能让流常驻（D19 否决）。
+/// ≠ 已经在采，用户若立刻开口，开头那一小段仍会丢；要彻底消除只能让流常驻
+/// （resident_mic 可选项，默认关，D24）。
 ///
 /// 组合键（G40）：按下后 `COMBO_GUARD_MS` 内出现任何其它键（含按下前就按住的
 /// Shift/Alt 等，也含窗口内按下又松开的极短敲击）→ 判定为组合键，静默丢弃
@@ -372,6 +441,7 @@ fn wait_for_press(
     mic: &mut Mic,
     app: &AppHandle,
     theme: &str,
+    resident_mic: bool,
 ) -> Option<Instant> {
     let poll = Duration::from_millis(hotkey::POLL_MS);
     let guard = Duration::from_millis(COMBO_GUARD_MS);
@@ -381,6 +451,12 @@ fn wait_for_press(
             std::thread::sleep(poll);
         }
         let t_down = Instant::now();
+
+        // 按下瞬间：清空缓冲并打开写入闸门。本次会话从按下之后的新音频开始；
+        // 观察窗（150ms）里到达的音频留在缓冲，`run()` 开始喂送时一并送进
+        // ASR——G42「观察窗不丢句首」口径不变。常驻模式下闲置期的旧音频
+        // 在闸门关闭时根本没进缓冲，这里再清一次是双保险。
+        mic.arm();
 
         // 弹窗线程：只等观察窗，不等开流。与下面的 mic.start() 真并行。
         // 返回 (是否已弹窗, 是否判定为组合键)——`drain_presses` 是取走语义，
@@ -417,7 +493,6 @@ fn wait_for_press(
                 eprintln!("[voice] {e}");
             }
         }
-        // 观察窗：组合键不触发。两条通道都看——
         //   down_except：当前仍按住的其它键（Shift 可能早于 Ctrl 按下）
         //   drain_presses：窗口内按下又松开的其它键（极短敲击不会留在 down 里）
         // 注意先判一次再进循环：`mic.start()` 可能要上百毫秒（设备重开），
@@ -445,7 +520,10 @@ fn wait_for_press(
         while hook.pressed(vks) {
             std::thread::sleep(poll);
         }
-        mic.stop_stream(); // 不进入会话就不占麦
+        mic.disarm(); // 不进入会话：关掉写入闸门（常驻模式下闲置期不攒音频）
+        if !resident_mic {
+            mic.stop_stream(); // 按需模式：不进入会话就不占麦；常驻模式保留已打开的流
+        }
         // 弹窗线程可能已经弹了（组合键是它之后才被主线程发现的）：收回去
         if popup_shown {
             if let Some(w) = app.get_webview_window("overlay") {
@@ -475,6 +553,8 @@ pub struct VoiceSettings {
     pub inject_cfg: InjectConfig,
     pub post_cfg: ime_post::PostConfig,
     pub model_correct: bool,
+    /// 常驻麦克风：用户显式开启才跨会话保留设备流；默认 false。
+    pub resident_mic: bool,
     /// 浮窗主题（dark | light）：会话开始经 `voice://theme` 广播给浮窗页
     pub theme: String,
 }
@@ -564,7 +644,14 @@ impl VoiceSettings {
             }
             "dark".to_string()
         };
-        Self { vks: key.vks().to_vec(), inject_cfg, post_cfg, model_correct, theme }
+        // 常驻麦克风（默认关）：开着才跨会话保留设备流。
+        // 缺失/非法值一律按 false（隐私优先：升级后不会突然常亮指示灯）。
+        let resident_mic = settings
+            .as_ref()
+            .and_then(|s| s.get("resident_mic"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        Self { vks: key.vks().to_vec(), inject_cfg, post_cfg, model_correct, resident_mic, theme }
     }
 }
 
@@ -580,8 +667,9 @@ pub fn run(
         *slot = VoiceSettings::load(&bridge); // 首次装载（命令热更前这里也可能被调）
         let s = &*slot;
         eprintln!(
-            "[voice] 按住热键说话，松开输入；Esc 取消；按需开麦 \
+            "[voice] 按住热键说话，松开输入；Esc 取消；{} \
              （热键按键={:?} 注入策略={:?} 填充词={:?} 纠错={}）",
+            if s.resident_mic { "常驻麦克风（指示灯常亮，按下零开流延迟）" } else { "按需开麦" },
             s.vks,
             s.inject_cfg.strategy,
             s.post_cfg.filler_level,
@@ -593,13 +681,51 @@ pub fn run(
         return;
     }
     let mut mic = new_mic();
+    // 常驻模式：启动时就开流（把 450–800ms 的 WASAPI 建流成本付在启动，
+    // 而不是每次按键）。失败不拦启动——会话开始处仍会按需补开（G23 兜底）。
+    let mut resident;
+    {
+        let s = cfg.lock().unwrap();
+        resident = s.resident_mic;
+    }
+    if resident {
+        match mic.start() {
+            Ok(()) => eprintln!("[mic] 常驻流已就绪（不按键也占用设备，指示灯常亮）"),
+            Err(e) => eprintln!("[mic] ⚠ 常驻流启动失败（{e}），退回「按下才开麦」"),
+        }
+    }
     loop {
         // 每次会话开始取一次设置：热更在会话边界生效
-        let (vks, inject_cfg, post_cfg, model_correct, theme) = {
+        let (vks, inject_cfg, post_cfg, model_correct, theme, resident_mic) = {
             let s = cfg.lock().unwrap();
-            (s.vks.clone(), s.inject_cfg.clone(), s.post_cfg.clone(), s.model_correct, s.theme.clone())
+            (
+                s.vks.clone(),
+                s.inject_cfg.clone(),
+                s.post_cfg.clone(),
+                s.model_correct,
+                s.theme.clone(),
+                s.resident_mic,
+            )
         };
-        let Some(t_press) = wait_for_press(&hook, &vks, &mut mic, &app, &theme) else {
+        // 设置热更：从常驻切到按需 → 释放设备；从按需切到常驻 → 补开流。
+        // 会话边界做，不会打断正在进行的录音。
+        if resident_mic != resident {
+            resident = resident_mic;
+            if resident {
+                if mic.running() {
+                    eprintln!("[mic] 已切到常驻（流已在跑）");
+                } else {
+                    match mic.start() {
+                        Ok(()) => eprintln!("[mic] 已切到常驻（指示灯常亮）"),
+                        Err(e) => eprintln!("[mic] ⚠ 切常驻失败（{e}），本次仍按需开麦"),
+                    }
+                }
+            } else {
+                mic.stop_stream();
+                eprintln!("[mic] 已切回按需开麦（设备已释放）");
+            }
+        }
+        let Some(t_press) = wait_for_press(&hook, &vks, &mut mic, &app, &theme, resident) else {
             continue; // 组合键 / 观察窗内松手：已静默丢弃，回到等按键
         };
         // 兜底弹窗：正常路径在观察窗通过那一刻已经由弹窗线程 show 过（G42），
@@ -614,7 +740,10 @@ pub fn run(
             if let Some(w) = app.get_webview_window("overlay") {
                 let _ = w.hide();
             }
-            mic.stop_stream();
+            mic.disarm();
+            if !resident {
+                mic.stop_stream(); // 按需：立刻释放；常驻：保留流，下次按键照旧零延迟
+            }
             std::thread::sleep(Duration::from_secs(1)); // 核暂时不可用：缓一拍再等按键
             continue;
         }
@@ -629,6 +758,7 @@ pub fn run(
                 if let Some(w) = app.get_webview_window("overlay") {
                     let _ = w.hide();
                 }
+                mic.disarm(); // 作废本次：关写入闸门，别让残留标志跨到下一次
                 let _ = bridge.call("asr_cancel", serde_json::json!({}));
                 std::thread::sleep(Duration::from_millis(500));
                 continue;
@@ -678,7 +808,11 @@ pub fn run(
         if !stats.cancelled {
             std::thread::sleep(Duration::from_millis(DRAIN_MS));
         }
-        mic.end();
+        if resident {
+            mic.end_resident(); // 保留流：下次按下零开流延迟（代价：指示灯常亮）
+        } else {
+            mic.end(); // 按需：停止喂送并释放设备
+        }
         let dropped = mic.ring.dropped_count();
         let stream_errs = mic.stream_errors.load(Ordering::Relaxed);
         if dropped > 0 || stream_errs > 0 {
@@ -861,5 +995,58 @@ pub fn test_inject(_text: &str) -> crate::inject::InjectResult {
     crate::inject::InjectResult {
         outcome: crate::inject::InjectOutcome::Failed,
         strategy: "none",
+    }
+}
+
+// ---------------------------------------------------------------- 测试
+
+#[cfg(test)]
+mod tests {
+    use super::Ring;
+
+    /// 常驻麦克风依赖的缓冲不变量：`clear()` 之后，闲置期写进来的旧样本
+    /// 必须全部取不到，且**下一次会话**只读得到 clear 之后到达的音频。
+    /// （喂送线程不在跑时调用——它是唯一消费者，与 `arm()` 的约定一致。）
+    #[test]
+    fn ring_clear_drops_idle_audio_and_keeps_new() {
+        let ring = Ring::new(1024);
+        // 上一次会话遗留 + 闲置期持续到达的环境声
+        for s in 0..600i16 {
+            ring.push(s);
+        }
+        ring.clear();
+
+        let mut out = Vec::new();
+        ring.drain(1024, &mut out);
+        assert!(out.is_empty(), "clear 之后不该读到旧样本，实际 {} 个", out.len());
+
+        // 下一次会话按下之后到达的音频
+        for s in [1i16, 2, 3, 4] {
+            ring.push(s);
+        }
+        let mut out = Vec::new();
+        ring.drain(1024, &mut out);
+        assert_eq!(out, vec![1, 2, 3, 4]);
+    }
+
+    /// `arm()` 的计数口径：`clear()` 只丢样本、不动丢弃计数（会话结束时要先
+    /// 把它读进日志），归零是 `reset_dropped()` 的活——所以常驻模式下本次会话
+    /// 的溢出告警不会被下一次会话抹掉，也不会把闲置期的计数算进来。
+    #[test]
+    fn ring_clear_keeps_dropped_until_reset() {
+        let ring = Ring::new(4);
+        for s in 0..10i16 {
+            ring.push(s); // 容量 4：后 6 个被丢弃
+        }
+        assert!(ring.dropped_count() > 0, "满则丢新数据要留下计数");
+
+        ring.clear();
+        assert!(
+            ring.dropped_count() > 0,
+            "clear 不该清掉计数，否则会话结束时的溢出日志永远是 0"
+        );
+
+        ring.reset_dropped();
+        assert_eq!(ring.dropped_count(), 0);
     }
 }

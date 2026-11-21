@@ -51,8 +51,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="开机自启：on 开启 / off 关闭 / status 查看后退出")
 
     p.add_argument("--key", default=hotkey.DEFAULT_KEY, choices=sorted(hotkey.KEYS), help="PTT 键位")
-    p.add_argument("--resident-mic", action="store_true",
-                   help="常驻麦克风（更低延迟，但会一直占用设备；默认按下才开麦）")
+    mic_mode = p.add_mutually_exclusive_group()
+    mic_mode.add_argument("--resident-mic", dest="resident_mic", action="store_true",
+                          help="常驻麦克风（更低延迟，但会一直占用设备；默认读配置，配置默认关闭）")
+    mic_mode.add_argument("--no-resident-mic", dest="resident_mic", action="store_false",
+                          help="按需开麦（覆盖配置里的常驻麦克风；按下才开、松开关闭）")
+    p.set_defaults(resident_mic=None)
     p.add_argument("--no-popup", action="store_true",
                    help="不显示录音指示浮窗（默认显示）")
     p.add_argument("--single-press", action="store_true",
@@ -125,6 +129,8 @@ _SETTING_FLAGS = {
     "--trim": "trim_silence",
     "--vad": "use_vad",
     "--correct": "model_correct",
+    "--resident-mic": "resident_mic",
+    "--no-resident-mic": "resident_mic",
     "--key": "hotkey",
     "--model-dir": "model_dir",
     "--threads": "threads",
@@ -138,7 +144,7 @@ def apply_user_settings(
     store: Store | None,
     argv: list[str] | None = None,
 ) -> user_settings.Settings:
-    """把 SQLite 里的用户设置填进 args 默认值。
+    """把 JSON 里的用户设置填进 args 默认值。
 
     只覆盖"用户没在命令行上显式指定"的项 —— 排查问题时 `--inject unicode`
     必须能压过 GUI 里的选择。
@@ -166,6 +172,8 @@ def apply_user_settings(
         args.no_popup = not cfg.show_popup
     if "model_correct" not in given:
         args.correct = cfg.model_correct
+    if "resident_mic" not in given:
+        args.resident_mic = cfg.resident_mic
     if "hotkey" not in given:
         args.key = cfg.hotkey
     if args.model_dir is None and cfg.model_dir:

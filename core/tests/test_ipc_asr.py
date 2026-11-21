@@ -537,6 +537,113 @@ def test_asr_stream_stdout_is_pure_json(
     assert "chars=" in captured.err
 
 
+# ---------------------------------------------------------------- 设置热更（P2-②）
+
+
+def test_apply_settings_flags_do_not_reload(fake_asr: dict) -> None:
+    """非构造参数（切分/裁剪/纠错）只改开关，绝不为它们付几秒的重载。"""
+    rt = AsrRuntime(autostart_warmup=False)
+    rt.ensure_loaded()
+    assert fake_asr["load"] == 1
+
+    res = rt.apply_settings(use_vad=True, trim_silence=False, model_correct=True)
+    assert res == {"reloaded": False, "language": rt.language, "threads": rt.threads}
+    assert (rt.use_vad, rt.trim_silence, rt.model_correct) == (True, False, True)
+    assert fake_asr["load"] == 1
+
+
+def test_apply_settings_threads_reloads_when_loaded(fake_asr: dict) -> None:
+    """线程数是 recognizer 构造参数：已加载时改了必须重建。"""
+    rt = AsrRuntime(autostart_warmup=False, threads=4)
+    rt.ensure_loaded()
+    assert fake_asr["load"] == 1
+
+    res = rt.apply_settings(threads=8)
+    assert res["reloaded"] is True and res["threads"] == 8
+    assert rt.threads == 8
+    assert fake_asr["load"] == 2
+
+
+def test_apply_settings_lazy_path_skips_reload(fake_asr: dict) -> None:
+    """还没加载过：改属性就够，首次 load 自然用新值（不提前加载）。"""
+    rt = AsrRuntime(autostart_warmup=False, threads=4)
+    res = rt.apply_settings(threads=8, language="en")
+    assert res["reloaded"] is False
+    assert fake_asr["load"] == 0
+    rt.ensure_loaded()
+    assert fake_asr["load"] == 1
+
+
+def test_apply_settings_rejects_bad_language(fake_asr: dict) -> None:
+    """非法语言显式报错（与 set_language 同口径），且不留下半截状态。"""
+    rt = AsrRuntime(autostart_warmup=False, language="zh")
+    with pytest.raises(ValueError, match="不支持的识别语言"):
+        rt.apply_settings(language="klingon")
+    assert rt.language == "zh"
+
+
+def test_settings_save_over_ipc_syncs_flags_and_threads(store: Store, fake_asr: dict) -> None:
+    """协议层：保存线程数 → 运行时重建；保存裁剪开关 → 只改属性。"""
+    rt = AsrRuntime(autostart_warmup=False, threads=4)
+    rt.ensure_loaded()
+    assert fake_asr["load"] == 1
+
+    _ready, res = _run(
+        store, rt,
+        {"id": 1, "method": "settings_save", "params": {"threads": 8, "trim_silence": False}},
+    )
+    assert res["ok"] is True
+    assert rt.threads == 8 and rt.trim_silence is False
+    assert fake_asr["load"] == 2          # 线程数变了：重建一次
+
+    _ready, res = _run(
+        store, rt, {"id": 2, "method": "settings_save", "params": {"trim_silence": True}}
+    )
+    assert res["ok"] is True
+    assert rt.trim_silence is True
+    assert fake_asr["load"] == 2          # 只改开关：不再重建
+
+
+def test_settings_save_failure_keeps_saved_config(store: Store, fake_asr: dict, monkeypatch) -> None:
+    """重建失败（模型坏了）不能让保存失败：设置已落 JSON，新值保留待下次加载。"""
+    import xifeng.asr as asr_mod
+    from xifeng import settings as user_settings
+
+    rt = AsrRuntime(autostart_warmup=False, threads=4)
+    rt.ensure_loaded()                       # 先用好桩加载，让重建路径真的会跑
+
+    def boom(**_kw: object) -> None:
+        raise asr_mod.AsrError("模型坏了")
+
+    monkeypatch.setattr(asr_mod, "load", boom)
+    _ready, res = _run(
+        store, rt, {"id": 1, "method": "settings_save", "params": {"threads": 8}}
+    )
+    assert res["ok"] is True              # 保存本身成功
+    assert rt.threads == 8                # 新值保留，下次加载重试
+    assert rt._loaded is False            # 重建失败：标记回未加载
+    assert user_settings.load(None).threads == 8
+
+
+def test_models_use_over_ipc_reloads_model(fake_asr: dict, store: Store, tmp_path) -> None:
+    """切换模型目录要重建 recognizer，否则「已切换」等于没切。"""
+    good = tmp_path / "model"
+    good.mkdir()
+    (good / "model.onnx").write_bytes(b"x")
+    (good / "tokens.txt").write_text("a\n", encoding="utf-8")
+
+    rt = AsrRuntime(autostart_warmup=False)
+    rt.ensure_loaded()
+    assert fake_asr["load"] == 1
+
+    _ready, res = _run(
+        store, rt, {"id": 1, "method": "models_use", "params": {"path": str(good)}}
+    )
+    assert res["ok"] is True
+    assert rt.model_dir == str(good)
+    assert fake_asr["load"] == 2
+
+
 # ---------------------------------------------------------------- 语言切换
 
 

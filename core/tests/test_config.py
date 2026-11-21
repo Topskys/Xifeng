@@ -107,6 +107,21 @@ def test_legacy_hotkey_still_normalized_from_json():
     assert user_settings.load(None).hotkey == "lshift"
 
 
+def test_resident_mic_defaults_off_and_roundtrips():
+    # 旧配置没有这个字段：必须保持按需开麦，不能因升级变成常驻占麦。
+    config.save_raw({"language": "zh"})
+    assert user_settings.load(None).resident_mic is False
+
+    enabled = user_settings.update(user_settings.DEFAULTS, resident_mic=True)
+    assert user_settings.save(None, enabled) is True
+    assert user_settings.load(None).resident_mic is True
+    assert config.load_raw()[0]["resident_mic"] == "1"
+
+    disabled = user_settings.update(enabled, resident_mic=False)
+    assert user_settings.save(None, disabled) is True
+    assert user_settings.load(None).resident_mic is False
+
+
 def test_metadata_keys_are_not_treated_as_settings():
     config.save_raw({"language": "en", "migrated_from": "sqlite", "schema_version": 1})
     cfg = user_settings.load(None)

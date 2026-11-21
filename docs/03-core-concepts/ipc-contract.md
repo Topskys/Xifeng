@@ -71,7 +71,14 @@ Python 核心退化为模型运行时。它们**不经过 `webgui.Api`**，
 | `asr_cancel` | `{}` | `{}`。丢弃缓冲（Esc 取消本次） |
 | `correct` | `{"text": "..."}` | `{applied, text, fixes, reason, ms}`。本地 LLM 纠错（`model_correct` 开关在壳侧判断，Python 侧总可用）；**G32 守卫在 `correction.check` 内**——`applied=false` 即拒绝，`text` 恒为原文，壳只在 `applied=true` 时采用；首调用付模型加载（失败粘性，绝不逐句重试）；持 `_load_lock` 与 ASR 解码互斥 |
 | `session_record` | Trace 字段的壳侧子集：`{outcome, chars, e2e_ms, ms_asr, ms_post, ms_inject, speech_ms, strategy, fixes, error, text, raw_text, clean_text}`（全部可省略） | `{id}`。写一条历史（mode=ptt）；`store_text` 关闭时文本不落库（开关在 `add_history` 内生效）；数据库/参数问题绝不抛出——返回 `{"id": -1}`，不影响已完成的注入 |
-| `set_language` | `{"language": "zh"}` | `{language}`。切换识别语言（zh/en/ja/ko/yue）。语言是 sherpa recognizer 的**构造参数**，改了必须**重建模型**才生效（数秒）；非法语言 → `ok=false` 显式报错（不静默忽略）。`settings_save` 带新语言时会自动调一次，用户不必手动调用 |
+| `set_language` | `{"language": "zh"}` | `{language}`。切换识别语言（zh/en/ja/ko/yue）。语言是 sherpa recognizer 的**构造参数**，改了必须**重建模型**才生效（数秒）；非法语言 → `ok=false` 显式报错（不静默忽略）。`settings_save` 带新语言时会自动同步（走 `AsrRuntime.apply_settings`），用户不必手动调用 |
+
+**设置热更（D24）**：`settings_save` / `settings_reset` / `models_use` 成功后，
+IPC 层调 `AsrRuntime.apply_settings` 把设置同步进运行时——**构造参数**
+（`language`/`threads`/`model_dir`）变了才重建 recognizer（数秒，没变不白付），
+**非构造开关**（`use_vad`/`trim_silence`/`model_correct`）改属性即生效。
+重建失败不拦保存本身（设置已落 JSON，日志显式警告，下次加载重试）。
+壳侧其余设置在**下一次语音会话边界**生效。
 
 约束：
 

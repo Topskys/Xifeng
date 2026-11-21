@@ -54,6 +54,7 @@ class Settings:
     download_source: str = "modelscope"  # 模型下载源：modelscope | hf-mirror | github | local
     theme: str = "dark"                  # 界面主题：dark | light
     show_popup: bool = True              # PTT 录音指示浮窗
+    resident_mic: bool = False           # 常驻麦克风（默认关：不录音时释放设备）
     model_correct: bool = False          # 本地模型纠错（默认关：+0.5–1.5s，G32）
     popup_color: str = "red"             # 录音浮窗音效颜色：red | cyan | green | white
     language: str = asr.DEFAULT_LANGUAGE  # ASR 识别语言：zh | en | ja | ko | yue
@@ -149,6 +150,7 @@ def from_raw(raw: dict) -> Settings:
         ),
         theme=_as_choice(get("theme"), THEMES, DEFAULTS.theme),
         show_popup=_as_bool(get("show_popup"), DEFAULTS.show_popup),
+        resident_mic=_as_bool(get("resident_mic"), DEFAULTS.resident_mic),
         model_correct=_as_bool(get("model_correct"), DEFAULTS.model_correct),
         popup_color=_as_choice(get("popup_color"), ("red", "cyan", "green", "white"), DEFAULTS.popup_color),
         language=_as_choice(get("language"), LANGUAGES, DEFAULTS.language),
@@ -198,6 +200,7 @@ def update(settings: Settings, **changes: object) -> Settings:
         ),
         theme=_as_choice(s.theme, THEMES, DEFAULTS.theme),
         show_popup=bool(s.show_popup),
+        resident_mic=bool(s.resident_mic),
         model_correct=bool(s.model_correct),
         popup_color=_as_choice(s.popup_color, ("red", "cyan", "green", "white"), DEFAULTS.popup_color),
         language=_as_choice(s.language, LANGUAGES, DEFAULTS.language),

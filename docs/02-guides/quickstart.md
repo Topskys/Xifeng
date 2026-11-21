@@ -125,7 +125,8 @@ uv run python run_spike.py --ptt --no-inject --print-raw
 - 启动时会打印 `[mic] 按需开麦`：不按键时麦克风是关的，按下才开始采集（G23）
 - Python 走的是旧 PortAudio 栈，按下后有 **100–400ms** 开流静默期，提示出现后再开口；
   壳侧 cpal 实测 `play→首回调` 仅 **17–24ms**（G23 复测），所以安装版没有这段等待
-- 确实需要消掉 Python 这段静默期才加 `--resident-mic`（会一直占用麦克风，Windows 指示常亮）
+- 确实需要消掉 Python 这段静默期才加 `--resident-mic`（会一直占用麦克风，Windows 指示常亮）；
+  日常形态（壳）里这是配置页的「常驻麦克风」开关，默认关
 - `[mic] 2.15s` 比按住时长长是正常的（含前置缓冲 + 120ms 尾音收尾）
 - `--no-inject` 只处理、不打字，安全
 - 按住不足 250ms 判定为误触（`Ctrl+C` 不会触发）；录音中按 Esc 取消

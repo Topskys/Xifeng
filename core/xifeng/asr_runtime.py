@@ -150,23 +150,81 @@ class AsrRuntime:
         不能热改），所以这里同步重载模型——耗时与首次加载同量级（数秒）。
 
         非法语言显式报错（不静默忽略）：用户点了没反应是最糟的体验。
+        重建逻辑与设置热更共用 `apply_settings`（单一实现）。
         """
         if not isinstance(language, str) or not language.strip():
             raise ValueError("set_language.language 必须是字符串")
-        lang = language.strip().lower()
-        if lang not in SUPPORTED_LANGUAGES:
-            raise ValueError(
-                f"不支持的识别语言：{language}（支持：{', '.join(SUPPORTED_LANGUAGES)}）"
-            )
-        with self._load_lock:
-            if self._loaded and lang == self.language:
-                return {"language": self.language}
+        self.apply_settings(language=language)
+        return {"language": self.language}
+
+    def apply_settings(
+        self,
+        *,
+        use_vad: bool | None = None,
+        trim_silence: bool | None = None,
+        model_correct: bool | None = None,
+        threads: int | None = None,
+        model_dir: str | None = None,
+        language: str | None = None,
+    ) -> dict:
+        """把用户设置同步进运行时（P2-② 热更；`ipc._sync_runtime` 调用）。
+
+        两类参数分开处理：
+
+        - **非构造参数**（录音段切分、首尾静音裁剪、模型纠错开关）：只是
+          每次 `end()` / `correct()` 时读的开关，改属性即可，下一次说话生效。
+        - **构造参数**（语言、推理线程数、模型目录）：sherpa 的 recognizer
+          在构造时就把它们吃掉了，改了必须重建（数秒）。这里在同一次调用里
+          做完，用户点「保存」就生效，不必重启。
+
+        没变就不重建（重载要几秒，不能白付）。非法语言显式报错，不静默忽略。
+
+        如实记账：线程数改动作用于 ASR；**已加载的纠错 LLM 保持原线程数**
+        直到进程重启（llama.cpp 的线程池在构造时定死，热改要重载整个模型）。
+
+        返回 `{"reloaded": bool, "language": str, "threads": int}`。
+        """
+        if use_vad is not None:
+            self.use_vad = bool(use_vad)
+        if trim_silence is not None:
+            self.trim_silence = bool(trim_silence)
+        if model_correct is not None:
+            self.model_correct = bool(model_correct)
+
+        lang: str | None = None
+        if language is not None:
+            lang = str(language).strip().lower()
+            if lang not in SUPPORTED_LANGUAGES:
+                raise ValueError(
+                    f"不支持的识别语言：{language}（支持：{', '.join(SUPPORTED_LANGUAGES)}）"
+                )
+        new_threads = self.threads if threads is None else int(threads)
+        new_dir = self.model_dir if model_dir is None else (str(model_dir) or None)
+
+        changed = (
+            (lang is not None and lang != self.language)
+            or new_threads != self.threads
+            or new_dir != self.model_dir
+        )
+        if not changed:
+            return {"reloaded": False, "language": self.language, "threads": self.threads}
+
+        if lang is not None:
             self.language = lang
-            # 重建 recognizer：先让 asr.load 释放旧的
-            self._loaded = False
-            self._load_locked()
-        _log(f"识别语言已切换为 {lang}（模型已重载）")
-        return {"language": lang}
+        self.threads = new_threads
+        self.model_dir = new_dir
+        reloaded = False
+        with self._load_lock:
+            if self._loaded:
+                # 已加载过才值得重建：懒加载路径改属性就够，首次 load 自然用新值
+                self._loaded = False
+                self._load_locked()
+                reloaded = True
+        _log(
+            f"设置已热更：language={self.language} threads={self.threads} "
+            f"model_dir={self.model_dir or '(默认)'} reloaded={reloaded}"
+        )
+        return {"reloaded": reloaded, "language": self.language, "threads": self.threads}
 
     def warmup(self) -> None:
         """后台线程入口：加载 + 空跑一次，消除首包冷启动（G8）。

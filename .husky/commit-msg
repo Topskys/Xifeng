@@ -1,10 +1,11 @@
 #!/bin/sh
-# 提交前校验提交标题（husky commit-msg 钩子）
-#   1) 符合 Conventional Commits：<type>(<scope>): <subject>（scope 可选）
-#   2) 标题 < 50 字（按 Unicode 字符算：中文/全角 1 字 = 1，emoji 1 字 = 1）
-# 生效：pnpm install 会自动跑 prepare 装钩子；手动则 npx husky
+# 提交前校验提交信息（husky commit-msg 钩子）
+#   规则：整个提交信息只允许一行，且
+#         1) 符合 Conventional Commits：<type>(<scope>): <subject>（scope 可选）
+#         2) 少于 50 字（按 Unicode 字符算：中文/全角 1 字 = 1，emoji 1 字 = 1）
+# 生效：pnpm install 自动装（prepare: husky）；手动 npx husky
 # 破例：git commit --no-verify
-# 手测：sh .husky/commit-msg <消息文件>
+set -u
 
 TYPES='feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert'
 HEADER_RE="^($TYPES)(\([A-Za-z0-9._/-]+\))?!?: [^[:space:]]"
@@ -14,11 +15,13 @@ if [ ! -f "${1:-}" ]; then
   exit 2
 fi
 
-# 丢 CR（GUI 客户端可能写 CRLF）、丢 `git commit -v` 附带的 diff、去注释行与首尾空行
-header=$(cat "$1" | tr -d '\r' | sed -e '/^-- >8 --$/,$d' | git stripspace -s | sed -n '1p')
+# 丢 CR、丢 `git commit -v` 附带的 diff、去注释行与首尾空行
+msg=$(cat "$1" | tr -d '\r' | sed -e '/^-- >8 --$/,$d' | git stripspace -s)
+header=$(printf '%s\n' "$msg" | sed -n '1p')
+body=$(printf '%s\n' "$msg" | sed -n '2,$p')
 
 if [ -z "$header" ]; then
-  echo "[X] 提交信息为空" >&2
+  echo '[X] 提交信息为空' >&2
   exit 1
 fi
 
@@ -30,29 +33,28 @@ case "$header" in
 esac
 
 # 字符数 = UTF-8 字节数 - 续字节数(0x80-0xBF)。
-# Git for Windows 的 sh 是 C locale，wc -m / ${#var} 都按字节算，直接用会把中文当 3 字。
+# Git for Windows 的 sh 是 C locale，wc -m / ${#var} 按字节算，中文会被当 3 字。
 bytes=$(printf '%s' "$header" | wc -c | tr -cd '0-9')
 cont=$(printf '%s' "$header" | tr -cd '\200-\277' | wc -c | tr -cd '0-9')
 len=$((bytes - cont))
 
 why=''
-if ! printf '%s\n' "$header" | grep -Eq "$HEADER_RE"; then
-  why='格式不符合 Conventional Commits'
-fi
-if [ "$len" -ge 50 ]; then
-  why="${why:+$why；}标题 $len 字，必须 < 50 字"
-fi
+printf '%s\n' "$header" | grep -Eq "$HEADER_RE" || why='格式不符合 <type>(<scope>): <subject>'
+[ "$len" -ge 50 ] && why="${why:+$why；}标题 $len 字，必须 < 50 字"
+[ -n "$body" ] && why="${why:+$why；}不允许多行（共 $(printf '%s\n' "$msg" | grep -c '.') 行，正文请删掉）"
 
 if [ -z "$why" ]; then
-  echo "  ✓ 提交信息校验通过（标题 $len 字）" >&2
+  echo "  ✓ 提交信息校验通过（单行 $len 字）" >&2
   exit 0
 fi
 
-echo '' >&2
-echo "[X] 提交被拒：$why" >&2
-echo "    标题：$header" >&2
-echo "    格式：<type>(<scope>): <subject>   type: $TYPES" >&2
-echo "    例子：feat(hooks): 增加提交信息校验钩子" >&2
-echo "    破例：git commit --no-verify" >&2
-echo '' >&2
+{
+  echo ''
+  echo "[X] 提交被拒：$why"
+  echo "    你的消息：$header"
+  echo "    要求：一行写清，< 50 字，type ∈ $TYPES"
+  echo "    例子：chore(hooks): 校验通过时打印标题字数"
+  echo "    破例：git commit --no-verify"
+  echo ''
+} >&2
 exit 1

@@ -2,7 +2,7 @@
   "name": "xifeng",
   "private": true,
   "version": "0.2.0",
-  "description": "Xifeng 本地语音输入法：Tauri 壳 + Python ASR 运行时",
+  "description": "溪风一款基于语音模型本地推理的语音输入法",
   "scripts": {
     "dev": "pnpm --filter @xifeng/desktop dev",
     "build": "pnpm --filter @xifeng/desktop build",

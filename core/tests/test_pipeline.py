@@ -106,7 +106,7 @@ def test_correction_applied_and_counted(monkeypatch) -> None:  # noqa: ANN001
     monkeypatch.setattr(
         correction,
         "correct",
-        lambda text: correction.CorrectionResult(
+        lambda text, **_kw: correction.CorrectionResult(
             text="这个会议纪要发给我", applied=True, reason="ok", fixes=1, ms=7
         ),
     )
@@ -125,7 +125,7 @@ def test_correction_rejection_keeps_original(monkeypatch) -> None:  # noqa: ANN0
     monkeypatch.setattr(
         correction,
         "correct",
-        lambda text: correction.CorrectionResult(text=text, applied=False, reason="drop-start"),
+        lambda text, **_kw: correction.CorrectionResult(text=text, applied=False, reason="drop-start"),
     )
     pipe = Pipeline(PipelineConfig(do_inject=False, model_correct=True))
     r = pipe.process_pcm(_pcm())

@@ -12,9 +12,12 @@
     "tauri": "pnpm --filter @xifeng/desktop tauri",
     "tauri:dev": "pnpm --filter @xifeng/desktop tauri:dev",
     "tauri:build": "pnpm --filter @xifeng/desktop tauri:build",
-    "prepare": "husky"
+    "prepare": "husky",
+    "changelog": "conventional-changelog -p conventionalcommits -i CHANGELOG.md -s",
+    "version": "pnpm changelog && git add CHANGELOG.md"
   },
   "devDependencies": {
+    "conventional-changelog-cli": "^5.0.0",
     "husky": "^9.1.7"
   }
 }

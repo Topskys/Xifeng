@@ -36,8 +36,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--threads", type=int, default=8, help="ONNX 线程数（8 核实测 8 最快）")
     p.add_argument("--language", default=asr.DEFAULT_LANGUAGE,
                    help="ASR 语言，默认 zh（auto 会把普通话误判成粤语，见 G22）")
-    p.add_argument("--itn", action="store_true",
-                   help="开启 ITN（默认关；见 metrics.md 的口径说明）")
+    itn_mode = p.add_mutually_exclusive_group()
+    itn_mode.add_argument("--itn", dest="itn", action="store_true",
+                          help="开启 ITN（默认开启；标点 + 数字改写）")
+    itn_mode.add_argument("--no-itn", dest="itn", action="store_false",
+                          help="关闭 ITN（中英混排对照用）")
+    p.set_defaults(itn=asr.DEFAULT_USE_ITN)
     p.add_argument("--vad", action="store_true")
     p.add_argument("--inject", action="store_true", help="同时测注入（会真的往光标打字，危险）")
     p.add_argument("--json", action="store_true")

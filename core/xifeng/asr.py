@@ -28,7 +28,7 @@ class _State:
     recognizer: object | None = None
     model_dir: str = ""
     language: str = ""          # load() 时赋值，见 DEFAULT_LANGUAGE
-    use_itn: bool = False
+    use_itn: bool = True
 
 
 _state = _State()
@@ -60,10 +60,10 @@ DEFAULT_THREADS = 8  # 8 核实测：2→404ms / 4→354ms / 8→329ms（4.49s �
 # 同一段音频 CER 57% → 0%。见 docs/05-gotchas.md G22。
 DEFAULT_LANGUAGE = "zh"
 
-# ITN（逆文本归一化）默认关闭：它把"一百五十"写成"150"（表面形式差异），
-# 但混排英文会明显退化（"voice i e … read me" → "voiceice imME的readmin"，CER 4.5% → 27.3%）。
-# 数字改写留给 postprocess 的规则，ASR 只负责给原文。见 docs/04-reference/metrics.md。
-DEFAULT_USE_ITN = False
+# ITN（逆文本归一化）默认开启：同时提供标点与数字改写（"三点"→"3点"）。
+# 用户可在配置页或经 --no-itn 关闭。如实记账：中英混排可能明显退化
+# （"voice i e … read me" → "voiceice imME的readmin"），见 docs/05-gotchas.md G12/G45。
+DEFAULT_USE_ITN = True
 
 
 #: 容器魔数 → 名字。只列**真实麦克风 PCM 几乎不可能以它开头**的那些：

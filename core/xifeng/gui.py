@@ -907,7 +907,7 @@ class ConfigPage(Page):
         ui.Badge(engine, "sherpa-onnx", variant="muted", bg=ui.CARD, height=20).pack(
             side="left", padx=(6, 0)
         )
-        self.row(body, "ASR 模型", "在「模型」页切换；语言固定 zh、ITN 关闭", engine)
+        self.row(body, "ASR 模型", "在「模型」页切换；语言与 ITN 在 Web 配置页设置", engine)
         self.dl = ui.Select(
             body,
             [("ModelScope", "modelscope"), ("HuggingFace 镜像", "hf-mirror"),

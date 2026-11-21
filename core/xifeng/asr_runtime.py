@@ -166,6 +166,7 @@ class AsrRuntime:
         threads: int | None = None,
         model_dir: str | None = None,
         language: str | None = None,
+        use_itn: bool | None = None,
     ) -> dict:
         """把用户设置同步进运行时（P2-② 热更；`ipc._sync_runtime` 调用）。
 
@@ -173,7 +174,7 @@ class AsrRuntime:
 
         - **非构造参数**（录音段切分、首尾静音裁剪、模型纠错开关）：只是
           每次 `end()` / `correct()` 时读的开关，改属性即可，下一次说话生效。
-        - **构造参数**（语言、推理线程数、模型目录）：sherpa 的 recognizer
+        - **构造参数**（语言、推理线程数、模型目录、ITN）：sherpa 的 recognizer
           在构造时就把它们吃掉了，改了必须重建（数秒）。这里在同一次调用里
           做完，用户点「保存」就生效，不必重启。
 
@@ -200,19 +201,27 @@ class AsrRuntime:
                 )
         new_threads = self.threads if threads is None else int(threads)
         new_dir = self.model_dir if model_dir is None else (str(model_dir) or None)
+        new_itn = self.use_itn if use_itn is None else bool(use_itn)
 
         changed = (
             (lang is not None and lang != self.language)
             or new_threads != self.threads
             or new_dir != self.model_dir
+            or new_itn != self.use_itn
         )
         if not changed:
-            return {"reloaded": False, "language": self.language, "threads": self.threads}
+            return {
+                "reloaded": False,
+                "language": self.language,
+                "threads": self.threads,
+                "use_itn": self.use_itn,
+            }
 
         if lang is not None:
             self.language = lang
         self.threads = new_threads
         self.model_dir = new_dir
+        self.use_itn = new_itn
         reloaded = False
         with self._load_lock:
             if self._loaded:
@@ -224,7 +233,12 @@ class AsrRuntime:
             f"设置已热更：language={self.language} threads={self.threads} "
             f"model_dir={self.model_dir or '(默认)'} reloaded={reloaded}"
         )
-        return {"reloaded": reloaded, "language": self.language, "threads": self.threads}
+        return {
+            "reloaded": reloaded,
+            "language": self.language,
+            "threads": self.threads,
+            "use_itn": self.use_itn,
+        }
 
     def warmup(self) -> None:
         """后台线程入口：加载 + 空跑一次，消除首包冷启动（G8）。

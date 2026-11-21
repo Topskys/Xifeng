@@ -58,6 +58,7 @@ class Settings:
     model_correct: bool = False          # 本地模型纠错（默认关：+0.5–1.5s，G32）
     popup_color: str = "red"             # 录音浮窗音效颜色：red | cyan | green | white
     language: str = asr.DEFAULT_LANGUAGE  # ASR 识别语言：zh | en | ja | ko | yue
+    use_itn: bool = asr.DEFAULT_USE_ITN  # ITN 标点与数字改写（默认开；中英混排可关）
 
     def as_dict(self) -> dict[str, str]:
         return {k: _encode(v) for k, v in asdict(self).items()}
@@ -154,6 +155,7 @@ def from_raw(raw: dict) -> Settings:
         model_correct=_as_bool(get("model_correct"), DEFAULTS.model_correct),
         popup_color=_as_choice(get("popup_color"), ("red", "cyan", "green", "white"), DEFAULTS.popup_color),
         language=_as_choice(get("language"), LANGUAGES, DEFAULTS.language),
+        use_itn=_as_bool(get("use_itn"), DEFAULTS.use_itn),
     )
 
 
@@ -204,4 +206,5 @@ def update(settings: Settings, **changes: object) -> Settings:
         model_correct=bool(s.model_correct),
         popup_color=_as_choice(s.popup_color, ("red", "cyan", "green", "white"), DEFAULTS.popup_color),
         language=_as_choice(s.language, LANGUAGES, DEFAULTS.language),
+        use_itn=bool(s.use_itn),
     )

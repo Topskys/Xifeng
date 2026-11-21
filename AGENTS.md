@@ -10,7 +10,7 @@ PyInstaller 打包交付。Rust 版推迟（决策见 `docs/00-process/plan.md` 
 # Python 命令在 core/ 下执行（uv 管理环境，Python 3.11，镜像已配清华源）
 cd core
 uv sync                                  # 首次/依赖变更后
-uv run pytest                            # 单测（361 个，约 45s）
+uv run pytest                            # 单测（365 个，约 50s）
 uv run python tools/build_ext.py --release # 编译 Rust 扩展（debug 比 numpy 慢，默认用 release）
 uv run python run_spike.py --help        # 手动跑一次
 uv run python bench.py --n 20            # 输出各阶段 P50/P95（自动判环境档位）
@@ -85,7 +85,7 @@ Python: 仅 ASR/纠错推理运行时（--ipc stdio NDJSON，asr_begin/feed/end/
 D16 后：触发链在壳里，**Python --ptt --tray 语音服务已退役**（spawn_voice_service 已删）；
 托盘两项（显示主界面/退出）、开机自启写注册表值 `Xifeng`（HKCU\...\Run，指向壳 exe）、
 录音浮窗是 `?window=overlay` webview 页（`voice://level` 音量事件）。
-已知限制：设置热更分两类（D24）——**构造参数**（语言/线程数/模型目录）在保存时
+已知限制：设置热更分两类（D24/D25）——**构造参数**（语言/线程数/模型目录/ITN）在保存时
 经 `AsrRuntime.apply_settings` 立即重建 recognizer；**其余项**在下一次语音会话
 边界生效（会话中段不变）；纠错（LLM）与
 统计/历史已走 IPC（correct/session_record）；G7 提权目标已接反馈链

@@ -27,6 +27,8 @@ export interface Settings {
   popup_color: string
   /** ASR 识别语言：zh | en | ja | ko | yue */
   language: string
+  /** ITN 标点与数字改写（默认开启；中英混排时可关闭） */
+  use_itn: boolean
 }
 
 export interface ModelInfo {

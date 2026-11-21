@@ -183,7 +183,8 @@ def summarize(results: list[tuple], args: argparse.Namespace) -> int:
     print(f"ASR 耗时 P50 {ms[len(ms) // 2]}ms / 最慢 {ms[-1]}ms · 后端 {asr.backend()}")
     print(f"总体判定：{verdict(total_cer)}")
     print("=" * 60)
-    print("参考：CER 只统计字，标点不计；ITN 已关闭（G12），语言固定 zh（G22）。")
+    print("参考：CER 只统计字，标点不计；中文数字与阿拉伯数字是不同字符（表面形式差异也会计错），")
+    print("      比较识别能力前请统一 ITN 开关；语言固定 zh（G22）。")
     return 0 if total_cer <= 0.15 else 1
 
 
@@ -194,8 +195,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--threads", type=int, default=asr.DEFAULT_THREADS)
     p.add_argument("--language", default=asr.DEFAULT_LANGUAGE,
                    help="ASR 语言，默认 zh（auto 会把普通话误判成粤语，见 G22）")
-    p.add_argument("--itn", action="store_true",
-                   help="开启 ITN（默认关；开了会把数字改写成阿拉伯数字，且混排英文退化）")
+    itn_mode = p.add_mutually_exclusive_group()
+    itn_mode.add_argument("--itn", dest="itn", action="store_true",
+                          help="开启 ITN（默认开启；标点 + 数字改写）")
+    itn_mode.add_argument("--no-itn", dest="itn", action="store_false",
+                          help="关闭 ITN（中英混排对照用；CER 会受数字表面形式影响）")
+    p.set_defaults(itn=asr.DEFAULT_USE_ITN)
     p.add_argument("--wav-dir", default=None, help="复算已有录音目录（每句 01.wav…05.wav）")
     p.add_argument("--no-refine", dest="refine", action="store_false",
                    help="CER 只算 ASR 原始输出，不套清理/纠错")

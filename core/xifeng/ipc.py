@@ -188,7 +188,7 @@ def _sync_runtime(api: Api, runtime: AsrRuntime) -> None:
 
     分两类，口径要如实：
 
-    - **构造参数**（语言、推理线程数、模型目录）：sherpa 的 recognizer 在
+    - **构造参数**（语言、推理线程数、模型目录、ITN）：sherpa 的 recognizer 在
       构造时就把它们吃掉了，改了必须重建（数秒）。这里在同一次 IPC 调用里
       做完，用户点「保存」就生效。
     - **非构造参数**（录音段切分、首尾静音裁剪、模型纠错）：只是每次解码
@@ -203,6 +203,7 @@ def _sync_runtime(api: Api, runtime: AsrRuntime) -> None:
             language=getattr(s, "language", None),
             threads=getattr(s, "threads", None),
             model_dir=(getattr(s, "model_dir", "") or None),
+            use_itn=getattr(s, "use_itn", None),
             use_vad=getattr(s, "use_vad", None),
             trim_silence=getattr(s, "trim_silence", None),
             model_correct=getattr(s, "model_correct", None),

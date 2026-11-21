@@ -547,9 +547,42 @@ def test_apply_settings_flags_do_not_reload(fake_asr: dict) -> None:
     assert fake_asr["load"] == 1
 
     res = rt.apply_settings(use_vad=True, trim_silence=False, model_correct=True)
-    assert res == {"reloaded": False, "language": rt.language, "threads": rt.threads}
+    assert res == {
+        "reloaded": False,
+        "language": rt.language,
+        "threads": rt.threads,
+        "use_itn": rt.use_itn,
+    }
     assert (rt.use_vad, rt.trim_silence, rt.model_correct) == (True, False, True)
     assert fake_asr["load"] == 1
+
+
+def test_apply_settings_use_itn_reloads_when_changed(fake_asr: dict) -> None:
+    """ITN 是 recognizer 构造参数：改了必须重建，没改不能白付重载。"""
+    loads: list[object] = []
+
+    def fake_load(**kw: object) -> None:
+        loads.append(kw.get("use_itn"))
+
+    import xifeng.asr as asr_mod
+
+    orig_load = asr_mod.load
+    asr_mod.load = fake_load
+    try:
+        rt = AsrRuntime(autostart_warmup=False, use_itn=True)
+        rt.ensure_loaded()
+        assert loads == [True]
+
+        res = rt.apply_settings(use_itn=False)
+        assert res["reloaded"] is True and res["use_itn"] is False
+        assert rt.use_itn is False
+        assert loads == [True, False]
+
+        res = rt.apply_settings(use_itn=False)
+        assert res["reloaded"] is False
+        assert loads == [True, False]
+    finally:
+        asr_mod.load = orig_load
 
 
 def test_apply_settings_threads_reloads_when_loaded(fake_asr: dict) -> None:

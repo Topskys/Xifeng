@@ -122,6 +122,22 @@ def test_resident_mic_defaults_off_and_roundtrips():
     assert user_settings.load(None).resident_mic is False
 
 
+def test_use_itn_defaults_on_and_roundtrips():
+    # 新配置与旧配置缺字段都默认开；用户显式关闭后必须原样保留。
+    config.save_raw({"language": "zh"})
+    assert user_settings.load(None).use_itn is True
+
+    disabled = user_settings.update(user_settings.DEFAULTS, use_itn=False)
+    assert user_settings.save(None, disabled) is True
+    assert user_settings.load(None).use_itn is False
+    assert config.load_raw()[0]["use_itn"] == "0"
+
+    enabled = user_settings.update(disabled, use_itn=True)
+    assert user_settings.save(None, enabled) is True
+    assert user_settings.load(None).use_itn is True
+    assert config.load_raw()[0]["use_itn"] == "1"
+
+
 def test_metadata_keys_are_not_treated_as_settings():
     config.save_raw({"language": "en", "migrated_from": "sqlite", "schema_version": 1})
     cfg = user_settings.load(None)

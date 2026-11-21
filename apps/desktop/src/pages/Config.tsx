@@ -175,6 +175,12 @@ export function ConfigPage({
               onValueChange={(v) => patch({ language: v })}
             />
           </Row>
+          <Row
+            title="ITN 标点与数字"
+            desc="默认开启，中英混排可能退化"
+          >
+            <Switch checked={s.use_itn} onCheckedChange={(v) => patch({ use_itn: v })} />
+          </Row>
           <Row title="ASR 推理线程" desc="8 核 CPU 实测 8 线程最快">
             <SimpleSelect
               options={sel({ "1": "1", "2": "2", "4": "4", "8": "8", "16": "16", "32": "32" })}

@@ -36,6 +36,32 @@ def test_resident_mic_cli_overrides_config_in_both_directions() -> None:
     assert args.resident_mic is True
 
 
+def test_use_itn_cli_overrides_config_in_both_directions() -> None:
+    assert run_spike.parse_args([]).use_itn is None
+
+    user_settings.save(None, user_settings.update(user_settings.DEFAULTS, use_itn=False))
+    args = run_spike.parse_args(["--ptt"])
+    with Store(":memory:") as store:
+        run_spike.apply_user_settings(args, store, ["--ptt"])
+    assert args.use_itn is False
+
+    args = run_spike.parse_args(["--ptt", "--itn"])
+    with Store(":memory:") as store:
+        run_spike.apply_user_settings(args, store, ["--ptt", "--itn"])
+    assert args.use_itn is True
+
+    user_settings.save(None, user_settings.update(user_settings.DEFAULTS, use_itn=True))
+    args = run_spike.parse_args(["--ptt", "--no-itn"])
+    with Store(":memory:") as store:
+        run_spike.apply_user_settings(args, store, ["--ptt", "--no-itn"])
+    assert args.use_itn is False
+
+
+def test_itn_flags_are_mutually_exclusive() -> None:
+    with pytest.raises(SystemExit):
+        run_spike.parse_args(["--ptt", "--itn", "--no-itn"])
+
+
 @pytest.fixture()
 def db(tmp_path: Path) -> str:
     return str(tmp_path / "cli.db")

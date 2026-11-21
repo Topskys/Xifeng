@@ -44,6 +44,7 @@ if [ "$len" -ge 50 ]; then
 fi
 
 if [ -z "$why" ]; then
+  echo "  ✓ 提交信息校验通过（标题 $len 字）" >&2
   exit 0
 fi
 

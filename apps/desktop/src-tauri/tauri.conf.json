@@ -1,6 +1,6 @@
 {
     "$schema": "https://schema.tauri.app/config/2",
-    "productName": "Xifeng",
+    "productName": "溪风",
     "version": "0.2.0",
     "identifier": "com.xifeng.app",
     "build": {
@@ -14,7 +14,7 @@
         "windows": [
             {
                 "label": "main",
-                "title": "Xifeng",
+                "title": "溪风",
                 "width": 1280,
                 "height": 820,
                 "minWidth": 900,
@@ -46,7 +46,8 @@
         },
         "windows": {
             "nsis": {
-                "installerHooks": "nsis/hooks.nsh"
+                "installerHooks": "nsis/hooks.nsh",
+                "startMenuFolder": "溪风"
             }
         }
     }

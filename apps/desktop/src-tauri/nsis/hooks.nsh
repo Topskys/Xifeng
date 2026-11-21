@@ -9,9 +9,9 @@
 !macro NSIS_HOOK_PREINSTALL
   ${If} $INSTDIR == "$LOCALAPPDATA\Xifeng"
     ${If} ${FileExists} "D:\Program Files (x86)\*.*"
-      StrCpy $INSTDIR "D:\Program Files (x86)\xifeng"
+      StrCpy $INSTDIR "D:\Program Files (x86)\溪风"
     ${Else}
-      StrCpy $INSTDIR "$LOCALAPPDATA\Programs\Xifeng"
+      StrCpy $INSTDIR "$LOCALAPPDATA\Programs\溪风"
     ${EndIf}
     SetOutPath "$INSTDIR"
   ${EndIf}

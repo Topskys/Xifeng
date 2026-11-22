@@ -14,7 +14,11 @@ Scope: **仅 M0**。GUI / 纠错 / 模型热切换不在本文件范围内（见
 >
 > **再修订（2026-11-09/13，D14/D16）**：交付形态改为 **Tauri 壳 + Python sidecar**，
 > 触发链在壳里、Python 只做推理；D6 的 PyInstaller 单产物降为"仅交付 Python 运行时"。
-> 现状以 `01-overview/architecture.md` 与 `plan.md` D14–D22 为准。
+> 现状以 `01-overview/architecture.md` 与 `plan.md` D14–D27 为准。
+>
+> **当前增量（2026-11-21/22，D24–D27）**：常驻麦克风可选且默认关，ITN 默认开，
+> 纠错支持可配置历史与自定义提示词，界面显示名为「溪风」。设置存外置 JSON；
+> 图形下载与流式输出仍未交付，详见 `02-guides/configuration.md`。
 
 ---
 
@@ -160,12 +164,13 @@ pub fn inject(text: &str, snap: &FocusSnapshot, cfg: &InjectConfig) -> Result<In
 > 2026-10-29 更新（撤销偏离 D3）：用户要求"有数据的地方用 SQLite"，已落地
 > `core/xifeng/store.py`，详见 `03-core-concepts/storage.md`。
 
-- 配置：M1 落在 SQLite `settings` 表（`key/value`），不再引入 `config.toml`
-- 历史/统计/设置：`%LOCALAPPDATA%/Xifeng/xifeng.db`（WAL；
+- 配置（现状）：外置 `%LOCALAPPDATA%/Xifeng/config.json`，原子写、可手改；不再写 SQLite settings 表
+- 历史/统计：`%LOCALAPPDATA%/Xifeng/xifeng.db`（WAL；
   Low 进程回退 `<python>/.data`；冻结形态不可写时回退 `<exe 同级>/data`）
 - Trace：仍可写 `trace.jsonl`（`--trace`），但 SQLite `history` 是主存储；
   **两者都不含音频**，文本受 `--no-store-text` 控制
-- 模型：`<repo>/models/`，通过环境变量 `IME_MODELS_DIR` 覆盖
+- 模型（现状）：`%LOCALAPPDATA%/Xifeng/models/{asr,vad,llm}`，可用 `IME_MODELS_ROOT` 整体换根；
+  旧 `<repo>/models/` 仅兼容只读探测，不再作为新下载落点
 
 ---
 

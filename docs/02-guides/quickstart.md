@@ -8,9 +8,9 @@
 
 ## A. 用安装包（不需要开发环境）
 
-1. 从 [Releases](https://github.com/Topskys/Xifeng/releases) 下载 `Xifeng_0.2.0_x64-setup.exe`
-2. 安装到 `D:\Program Files (x86)\xifeng`（没有 D 盘时回退 `%LOCALAPPDATA%\Programs\Xifeng`；安装器**默认不带模型**）
-3. 启动 → 「模型」页下载 ASR / VAD（约 239 MB，落到 `%LOCALAPPDATA%\Xifeng\models`）
+1. 从 [Releases](https://github.com/Topskys/Xifeng/releases) 下载 `溪风_0.2.0_x64-setup.exe`（旧 Release 可能仍使用 `Xifeng_...` 文件名）
+2. 默认安装到 `D:\Program Files (x86)\溪风`（没有 D 盘时回退 `%LOCALAPPDATA%\Programs\溪风`；安装器**默认不带模型**）
+3. 按 [配置与模型准备](configuration.md) 准备 ASR 模型；已有目录可在「模型」页添加。图形下载功能仍在开发，VAD/LLM 需手动准备
 4. 打开记事本，**按住右 Ctrl** 说一句，松开
 
 托盘图标可打开主界面或退出；数据在 `%LOCALAPPDATA%\Xifeng`，卸载不删。
@@ -26,7 +26,7 @@ PyInstaller 打的 onedir，自带 `python311.dll` 解释器与 `_internal/` 里
 本身是 Rust 静态编译的 exe。
 
 安装包 34.8 MB 就是「壳 + sidecar + 依赖」；唯一要单独下的是**模型**
-（约 239 MB，装完在「模型」页点一下，或手动放进
+（约 239 MB，准备方法见 [配置与模型准备](configuration.md)，或手动放进
 `%LOCALAPPDATA%\Xifeng\models\asr\sensevoice-small-int8\`）。
 
 > 想离线开箱包：`build_core.py --with-models` 会把模型一起打进安装包。
@@ -35,7 +35,7 @@ PyInstaller 打的 onedir，自带 `python311.dll` 解释器与 `_internal/` 里
 
 | 内容 | 位置 | 卸载会删吗 |
 |---|---|---|
-| 程序 | `D:\Program Files (x86)\xifeng` | ✅ 卸载器删 |
+| 程序 | `D:\Program Files (x86)\溪风` | ✅ 卸载器删 |
 | 配置 | `%LOCALAPPDATA%\Xifeng\config.json` | ❌ 保留（可手改） |
 | 历史 / 统计 | `%LOCALAPPDATA%\Xifeng\xifeng.db` | ❌ 保留 |
 | 日志 | `%LOCALAPPDATA%\Xifeng\xifeng.log` | ❌ 保留 |
@@ -72,7 +72,7 @@ uv sync
 uv run pytest
 ```
 
-期望：`346 passed`（含 Rust/Python parity，需先 `uv sync`）。
+期望：`374 passed`（2026-11-22，含 Rust/Python parity，需先构建扩展）。
 
 ### 3. 先看文本清理（不需要模型、不打字）
 
@@ -108,10 +108,11 @@ uv run python run_spike.py --text "呃 今天 我们 嗯 开个会，讨论一�
 不下载也能跑，ASR 会退回 `mock`（固定文本）。要真实识别就下载：
 
 ```bash
-uv run python fetch_model.py
+uv run python fetch_model.py --dir "$env:LOCALAPPDATA\Xifeng\models\asr\sensevoice-small-int8"
 ```
 
-支持断点续传；默认走 `hf-mirror.com`（官方源国内不通）。
+支持断点续传；默认走 `hf-mirror.com`（官方源国内不通）。可选 VAD/LLM 的准备方式见
+[配置与模型准备](configuration.md)。模型页的图形下载功能仍在开发，不能替代此步骤。
 
 ### 5. 录一段，看 Trace
 
@@ -228,8 +229,8 @@ uv run python quality_check.py
 
 ### 9. 看历史 / 统计 / 改设置
 
-数据都在一个 SQLite 文件里（`%LOCALAPPDATA%\Xifeng\xifeng.db`；
-Low 进程回退 `core/.data`）。见 `03-core-concepts/storage.md`。
+历史与统计在一个 SQLite 文件里（`%LOCALAPPDATA%\Xifeng\xifeng.db`；
+Low 进程回退 `core/.data`），设置在旁边的 `config.json`。见 `03-core-concepts/storage.md`。
 
 ```bash
 uv run python run_spike.py --stats              # 次数 / 成功率 / P50 / P95

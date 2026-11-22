@@ -1,7 +1,7 @@
 # IPC 契约（Tauri ↔ Python 核心）
 
-> 状态：**冻结**（2026-11-09）。三方实现（Rust 壳 / Python 核心 / 前端桥）MUST 遵循本文，
-> 任何改协议先改这里，三处同步后再提交。
+> 状态：**稳定**（2026-11-09 初版冻结）。三方实现（Rust 壳 / Python 核心 / 前端桥）MUST 遵循本文，
+> 任何改协议先改这里，三处同步后再提交。新增方法须标记状态，不得把草案当稳定接口。
 
 ## 传输
 
@@ -36,7 +36,7 @@
 ## 方法表
 
 与现有 HTTP 路由一一对应（`webgui.py` 的 `Api` 方法），参数与返回值**完全一致**，
-这样前端只需替换传输层，业务代码零改动。（共 14 个；D16 追加的 4 个推理方法见下一节。）
+这样前端只需替换传输层，业务代码零改动。（当前工作区：14 个稳定方法 + 1 个开发中方法；D16 运行时方法见下一节。）
 
 | method | 参数 | 返回 |
 |---|---|---|
@@ -49,6 +49,7 @@
 | `theme` | `{"theme": "dark"}` | `Settings` |
 | `models_use` | `{"path": "..."}` | `{current, list}` |
 | `models_find` | `{"name", "files"}` | `{matches: []}` |
+| `models_download` **草案，未验收** | `{"mirror": "hf-mirror|modelscope|github", "dir?": "..."}` | `{ok, path, size}` 或 `{error}`；真实镜像、进度/取消与冻结包路径尚未完成 |
 | `autostart` | `{"enabled": true}` | `{ok, error}` |
 | `prune` | — | `{removed: n}` |
 | `open` | `{"path": "__data__"}` | `{ok: true}` |

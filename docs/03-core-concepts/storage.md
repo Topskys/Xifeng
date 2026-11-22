@@ -20,7 +20,11 @@ Xifeng 有两类**有结构的东西**：输入历史（数据）与用户设置
   "clipboard_restore_ms": "500",
   "hotkey": "rctrl",
   "language": "zh",
+  "use_itn": "1",
   "model_correct": "0",
+  "correction_history_limit": "10",
+  "correction_prompt": "项目名写作 Xifeng；技术术语保留英文原文。",
+  "store_text": "1",
   "schema_version": 1,
   "threads": "8"
 }
@@ -38,7 +42,8 @@ Xifeng 有两类**有结构的东西**：输入历史（数据）与用户设置
   ——用户手改过的值不该被旧库覆盖。
 
 实现见 `core/xifeng/config.py`（读写 + 迁移）与 `core/xifeng/settings.py`
-（校验 + 类型转换）。
+（校验 + 类型转换）。纠错上下文、提示词和 ITN 等配置见
+[配置与模型准备](../02-guides/configuration.md)。
 
 ## 历史：SQLite 表结构
 
@@ -131,9 +136,11 @@ ASR 原文 → postprocess.process →（可选）correction.correct + 守卫 �
                                         └─ 采纳与否只写进 Trace（fixes / ms_correct），不落文本
 ```
 
-- 数据库**不参与**纠错：模型与守卫都是无状态的，没有可编辑的词表
+- 数据库**只读提供纠错上下文**：默认取最近 10 条成功注入的非空文本（旧→新，不含当前句），
+  轮数由 `correction_history_limit` 控制；数据库不参与守卫的相似度计算
 - 历史里的 `text` 是**注入后的最终文本**，`clean_text` 是纠错前的清理结果，
   `raw_text` 是 ASR 原文；三级对照都受 `--no-store-text` 约束
+- `store_text=0` 时既不保存三级文本，也不给纠错提供历史；自定义提示词仍只来自 config.json
 - 旧库的 `terms` 表保留但不读不写（升级不丢用户数据）
 
 ## CLI

@@ -7,7 +7,7 @@
 > 壳：`WH_KEYBOARD_LL` 热键 → cpal 按需开麦 → 环形缓冲 → 喂送线程 → IPC；松手后
 > `ime-post` 后处理 → `SendInput` 注入。托盘、自启、五页 webview、录音浮窗也在壳里。
 > Python：`--ipc` stdio NDJSON（`asr_begin/feed/end/cancel`），吃 PCM 吐原始文本；
-> 历史/设置/统计仍由 Python 侧的 SQLite 承担（壳经 `session_record` 落一条）。
+> 历史/统计由 Python 侧 SQLite 承担（壳经 `session_record` 落一条），设置存外置 JSON。
 > 旧的 Python `--ptt --tray` 语音服务已退役（D16），只保留为源码调试回路。
 
 ## 进程模型（现状）
@@ -15,7 +15,7 @@
 | 进程 | 实现 | 职责 | 崩溃策略 |
 |---|---|---|---|
 | `xifeng.exe` | Tauri 2 + Rust | 热键与 150ms 组合键观察窗、cpal 采集与 drain、`ime-post` 后处理、`SendInput` 注入、录音浮窗、托盘、自启、设置读取 | 崩溃后由自启/用户重新拉起；进程内不持久化会话 |
-| `Xifeng-Core.exe` | Python 3.11（PyInstaller onedir） | SenseVoice ASR、静音裁剪/VAD、可选 Qwen 纠错、SQLite（历史/设置/统计）、`--web` 调试界面 | 壳检测到退出会显式报错（不静默返回空文本）；下一次会话由壳重新拉起 |
+| `Xifeng-Core.exe` | Python 3.11（PyInstaller onedir） | SenseVoice ASR、静音裁剪/VAD、可选 Qwen 纠错、SQLite（历史/统计）、JSON 设置、`--web` 调试界面 | 壳检测到退出会显式报错（不静默返回空文本）；下一次会话由壳重新拉起 |
 
 两进程只通过 **stdio NDJSON** 交互（契约见 `03-core-concepts/ipc-contract.md`），
 不共享内存、不开端口（`--web` 调试模式例外，仅绑定 `127.0.0.1:8642`）。
@@ -39,7 +39,7 @@
 | `ipc.py` | NDJSON 方法表与分发（`asr_begin/feed/end/cancel`、`bootstrap`、`settings_*`、`correct`、`session_record`、`check_update` …） | 与 `webgui.Api` 一一对应 |
 | `asr_runtime.py` | sidecar 会话：收 PCM → 裁剪/VAD → 解码 → 返回原始文本 | 不做后处理（后处理在壳） |
 | `asr.py` | sherpa-onnx / SenseVoice 适配（mock / auto 兜底） | 独立线程推理 |
-| `correction.py` | 本地 Qwen2.5-0.5B + 守卫（默认关，G32） | 输出必须先过 `check` |
+| `correction.py` | 本地 Qwen2.5-0.5B + 最近历史/自定义提示词 + 守卫（默认关，G32） | 历史/提示词来自 config.json；输出必须先过 `check` |
 | `vad.py` | 能量/Silero VAD 与首尾裁剪，按**整句**调用一次 | 基准实现；热点可走 `xifeng_rs` |
 | `postprocess.py` | 幻觉/语气词/归一化，纯 Python 基准 | 与 `crates/ime-post` 逐字节等价（parity 测试） |
 | `store.py` | SQLite：历史 / 统计（G25） | 库在 `%LOCALAPPDATA%\Xifeng\xifeng.db` |
@@ -58,6 +58,10 @@
   语言是 sherpa recognizer 的**构造参数**，改了必须重建模型（数秒）——
   `settings_save` 会自动调一次 IPC `set_language` 完成重建，用户不必手动操作。
   必须显式指定：G22 记录过 `auto` 会把普通话判成粤语（CER 57% → 0%）。
+- **ITN 默认开启**：`use_itn` 是 recognizer 构造参数，与语言/线程/模型目录一样保存时重建。
+- **纠错上下文可配置**：`correction_history_limit`（默认 10）和 `correction_prompt`
+  只在 config.json 编辑；安全底线不可覆盖，`store_text=0` 时不读取历史。
+  详见 `02-guides/configuration.md`。
 
 ## 线程模型
 

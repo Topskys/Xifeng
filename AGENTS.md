@@ -1,8 +1,8 @@
 # AGENTS.md — Xifeng
 
-本地语音输入法。**Python 主流程**（sounddevice + ctypes Win32）+ SenseVoice ASR，
-PyInstaller 打包交付。Rust 版推迟（决策见 `docs/00-process/plan.md` 偏离 D6）。
-**端到端 P95 ≤ 1500ms 是硬指标**（实测 P95 582ms）。
+本地语音输入法。**Tauri/Rust 壳 + Python 推理 sidecar** + SenseVoice ASR；
+PyInstaller 用于打包 Python sidecar（决策见 `docs/00-process/plan.md` D14/D16）。
+**端到端 P95 ≤ 1500ms 是硬指标**（历史实测 P95 582ms；新测必须先判环境可信度）。
 
 ## 命令
 
@@ -10,7 +10,7 @@ PyInstaller 打包交付。Rust 版推迟（决策见 `docs/00-process/plan.md` 
 # Python 命令在 core/ 下执行（uv 管理环境，Python 3.11，镜像已配清华源）
 cd core
 uv sync                                  # 首次/依赖变更后
-uv run pytest                            # 单测（365 个，约 50s）
+uv run pytest                            # 单测（2026-11-22：374 个，约 50s）
 uv run python tools/build_ext.py --release # 编译 Rust 扩展（debug 比 numpy 慢，默认用 release）
 uv run python run_spike.py --help        # 手动跑一次
 uv run python bench.py --n 20            # 输出各阶段 P50/P95（自动判环境档位）
@@ -37,7 +37,7 @@ pnpm tauri:build                         # 出安装包
 
 # Rust（crates/，上机位置见 docs/02-guides/rust-env.md）
 cargo test -p ime-post                   # 后处理规则单测（21 个）
-cargo test -p ime-vad                    # VAD 算法单测（15 个）
+cargo test -p ime-vad                    # VAD 算法单测（17 个）
 cargo build -p ime-py --release          # 只编译扩展，不装进 venv
 ```
 
@@ -90,6 +90,9 @@ D16 后：触发链在壳里，**Python --ptt --tray 语音服务已退役**（s
 边界生效（会话中段不变）；纠错（LLM）与
 统计/历史已走 IPC（correct/session_record）；G7 提权目标已接反馈链
 （voice://elevated → 主窗口 toast）；voice_test 仅 debug/e2e 构建可用。
+纠错上下文与自定义提示词只经 config.json 配置（`correction_history_limit` /
+`correction_prompt`），不新增界面编辑器；`store_text=false` 时不读取历史。
+界面下载模型仍在开发中，安装文档不得把它写成已交付能力。
 
 Rust 以 PyO3 扩展（`xifeng_rs.pyd`）参与：`crates/ime-post` 放文本规则，`crates/ime-vad` 放 VAD 算法，`crates/ime-py` 只做
 Python 签名 ↔ Rust 的转接。Python 侧保留纯 Python 基准实现，两边必须逐字节等价。
@@ -157,7 +160,7 @@ Xifeng/
 │   ├── llms.txt
 │   ├── 00-process/    # intent / spec / plan / review / sdlc（SDLC 工件）
 │   ├── 01-overview/   # architecture / latency-budget
-│   ├── 02-guides/     # quickstart / packaging
+│   ├── 02-guides/     # quickstart / configuration / packaging
 │   ├── 03-core-concepts/
 │   ├── 05-gotchas.md
 │   └── reference/     # 闲聊.md 等原始素材

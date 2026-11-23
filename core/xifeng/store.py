@@ -190,6 +190,22 @@ class Store:
         ).fetchall()
         return [dict(r) for r in rows], total
 
+    def correction_history(self, limit: int = 10) -> list[str]:
+        """最近 N 条**成功注入**的文本，旧→新；不含失败、取消或空文本。
+
+        只给本地 LLM 提供上下文，不写日志。store_text 关闭时历史表本来就没有
+        文本，自然返回空列表，不在这里绕过用户的隐私选择。
+        """
+        n = max(0, min(int(limit), 50))
+        if n == 0:
+            return []
+        rows = self._conn.execute(
+            "SELECT text FROM history WHERE outcome=? AND text IS NOT NULL"
+            " AND trim(text) <> '' ORDER BY id DESC LIMIT ?",
+            (Outcome.INJECTED.value, n),
+        ).fetchall()
+        return [str(r["text"]) for r in reversed(rows)]
+
     def recent(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self._conn.execute(
             "SELECT * FROM history ORDER BY id DESC LIMIT ?", (max(1, limit),)

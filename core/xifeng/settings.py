@@ -18,6 +18,9 @@ from dataclasses import asdict, dataclass, replace
 
 from . import asr, config, hotkey, postprocess
 
+DEFAULT_CORRECTION_HISTORY = 10
+MAX_CORRECTION_PROMPT_CHARS = 2000
+
 INJECT_STRATEGIES = ("auto", "unicode", "clipboard")
 FILLER_LEVELS = ("off", "standard", "deep")
 FINAL_PUNCT = ("keep", "strip")
@@ -59,6 +62,10 @@ class Settings:
     popup_color: str = "red"             # 录音浮窗音效颜色：red | cyan | green | white
     language: str = asr.DEFAULT_LANGUAGE  # ASR 识别语言：zh | en | ja | ko | yue
     use_itn: bool = asr.DEFAULT_USE_ITN  # ITN 标点与数字改写（默认开；中英混排可关）
+    correction_history_limit: int = DEFAULT_CORRECTION_HISTORY  # 纠错读取最近 N 轮成功历史
+    correction_prompt: str = ""           # 自定义术语/风格提示；不能关闭安全守卫
+    store_text: bool = True               # 是否把识别文本存入本地历史库
+    streaming_enabled: bool = False       # 流式输出：句内分段实时注入，默认关（句级输出基线）
 
     def as_dict(self) -> dict[str, str]:
         return {k: _encode(v) for k, v in asdict(self).items()}
@@ -156,6 +163,12 @@ def from_raw(raw: dict) -> Settings:
         popup_color=_as_choice(get("popup_color"), ("red", "cyan", "green", "white"), DEFAULTS.popup_color),
         language=_as_choice(get("language"), LANGUAGES, DEFAULTS.language),
         use_itn=_as_bool(get("use_itn"), DEFAULTS.use_itn),
+        correction_history_limit=_as_int(
+            get("correction_history_limit"), DEFAULTS.correction_history_limit, 0, 50
+        ),
+        correction_prompt=str(get("correction_prompt") or "")[:MAX_CORRECTION_PROMPT_CHARS],
+        store_text=_as_bool(get("store_text"), DEFAULTS.store_text),
+        streaming_enabled=_as_bool(get("streaming_enabled"), DEFAULTS.streaming_enabled),
     )
 
 
@@ -207,4 +220,8 @@ def update(settings: Settings, **changes: object) -> Settings:
         popup_color=_as_choice(s.popup_color, ("red", "cyan", "green", "white"), DEFAULTS.popup_color),
         language=_as_choice(s.language, LANGUAGES, DEFAULTS.language),
         use_itn=bool(s.use_itn),
+        correction_history_limit=max(0, min(50, int(s.correction_history_limit))),
+        correction_prompt=str(s.correction_prompt or "")[:MAX_CORRECTION_PROMPT_CHARS],
+        store_text=bool(s.store_text),
+        streaming_enabled=bool(s.streaming_enabled),
     )

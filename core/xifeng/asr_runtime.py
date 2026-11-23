@@ -29,6 +29,7 @@ import binascii
 import sys
 import threading
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -44,6 +45,10 @@ SAMPLE_RATE = 16000
 MAX_SECONDS = 60
 #: 缓冲上限（帧 = i16 采样数）：60s ≈ 960000 帧，超出丢弃新数据
 MAX_FRAMES = MAX_SECONDS * SAMPLE_RATE
+
+#: 流式分段：每累积这么多新帧就重新跑一次 VAD 切分，把已闭合语音段
+#: 转成片段下发（250ms @16kHz）。
+STREAM_EVAL_EVERY_FRAMES = int(SAMPLE_RATE * 0.25)
 
 #: 支持的识别语言（与 `settings.LANGUAGES` 同源；SenseVoice 的语种清单）。
 #: G22：auto 会把普通话判成粤语，必须显式指定。
@@ -88,6 +93,8 @@ class AsrRuntime:
         autostart_warmup: bool = True,
         model_correct: bool = False,
         store: Store | None = None,
+        correction_prompt: str = "",
+        correction_history_limit: int = correction.DEFAULT_HISTORY_LIMIT,
     ) -> None:
         self.sample_rate = sample_rate
         self.backend = backend
@@ -103,6 +110,8 @@ class AsrRuntime:
         self.autostart_warmup = autostart_warmup
         #: 用户设置「本地模型纠错」：warmup 预热 LLM，correct 时零冷启动（G32 守卫在 correction 内）
         self.model_correct = model_correct
+        self.correction_prompt = str(correction_prompt or "")[:correction.MAX_PROMPT_CHARS]
+        self.correction_history_limit = max(0, min(int(correction_history_limit), 50))
         #: 历史库（--no-db 时是 :memory: 实例，永远非 None；None 只出现在测试直构）
         self._store = store
 
@@ -119,6 +128,16 @@ class AsrRuntime:
         # 避免守护线程停在 2~4s 的原生模型加载里把进程退出搞挂
         self._warmup_stop = threading.Event()
         self._warmup_thread: threading.Thread | None = None
+        # ------------------------------------------------------------ 流式（句内分段）
+        self._stream_buf: list[np.ndarray] = []
+        self._stream_frames = 0
+        self._stream_seg_index = 0
+        self._stream_active = False
+        self._stream_last_eval = 0
+        self._stream_overflow_warned = False
+        #: 片段回调：on_segment(index, text, chars, ms)。壳侧经 stdio IPC 时
+        #: 片段随 stream_feed 响应体下发；此回调只供同进程主机与测试使用。
+        self._on_segment: Callable[[int, str, int, int], None] | None = None
 
     # ------------------------------------------------------------ 生命周期
 
@@ -167,6 +186,8 @@ class AsrRuntime:
         model_dir: str | None = None,
         language: str | None = None,
         use_itn: bool | None = None,
+        correction_prompt: str | None = None,
+        correction_history_limit: int | None = None,
     ) -> dict:
         """把用户设置同步进运行时（P2-② 热更；`ipc._sync_runtime` 调用）。
 
@@ -191,6 +212,10 @@ class AsrRuntime:
             self.trim_silence = bool(trim_silence)
         if model_correct is not None:
             self.model_correct = bool(model_correct)
+        if correction_prompt is not None:
+            self.correction_prompt = str(correction_prompt)[:correction.MAX_PROMPT_CHARS]
+        if correction_history_limit is not None:
+            self.correction_history_limit = max(0, min(int(correction_history_limit), 50))
 
         lang: str | None = None
         if language is not None:
@@ -378,6 +403,181 @@ class AsrRuntime:
         self._take()
         return {}
 
+    # ------------------------------------------------------------ 流式协议方法
+
+    def stream_begin(
+        self,
+        on_segment: Callable[[int, str, int, int], None] | None = None,
+    ) -> dict:
+        """`asr_stream_begin` → {}：开启句内分段流。
+
+        清空流式缓冲、重置片段索引、注册片段回调并确保模型已加载。
+        之后的 `asr_stream_feed` 会在检测到完整语音段时转写并下发片段。
+        """
+        self._stream_clear()
+        self._on_segment = on_segment
+        self._stream_active = True
+        self.ensure_loaded()
+        return {}
+
+    def stream_feed(self, pcm_b64: str) -> dict:
+        """`asr_stream_feed` params={pcm_b64} → {frames, segments}。
+
+        追加 16kHz 单声道 i16 LE 裸字节（base64）；每积累
+        `STREAM_EVAL_EVERY_FRAMES` 帧就用 VAD 切分，对每个已闭合语音段复用
+        `prepare_pcm` + `asr.transcribe` 并逐段下发：片段经 `on_segment` 回调
+        通知，同时也包裹在响应的 `segments` 里供 stdio IPC 读取。日志只记
+        片段索引、长度与耗时，禁止出现识别文本全文。
+        """
+        if not isinstance(pcm_b64, str):
+            raise ValueError("asr_stream_feed.pcm_b64 必须是字符串")
+        try:
+            raw = base64.b64decode(pcm_b64, validate=False)  # 容忍换行
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError(f"asr_stream_feed.pcm_b64 不是合法 base64: {exc}") from exc
+        if len(raw) % 2:
+            raise ValueError("asr_stream_feed.pcm_b64 字节长度必须是偶数（i16）")
+
+        frames = len(raw) // 2
+        if frames:
+            if self._stream_frames + frames > MAX_FRAMES:
+                if not self._stream_overflow_warned:
+                    self._stream_overflow_warned = True
+                    _log(f"流式缓冲超过 {MAX_SECONDS}s 上限，丢弃新到的 {frames} 帧")
+            else:
+                arr = np.frombuffer(raw, dtype="<i2").astype(np.int16)
+                self._stream_buf.append(arr)
+                self._stream_frames += frames
+
+        segments: list[dict] = []
+        if self._stream_frames - self._stream_last_eval >= STREAM_EVAL_EVERY_FRAMES:
+            segments = self._stream_eval()
+        return {"frames": self._stream_frames, "segments": segments}
+
+    def stream_end(self) -> dict:
+        """`asr_stream_end` → {frames, segments}：转写剩余缓冲作为最后一片段后清空。
+
+        松手/松键时调用：把尚未闭合的尾音作为一段最终片段转写、下发，然后关
+        闭流式会话。与壳侧注入并行，不丢最后 150–300ms（G23）。
+        """
+        segments: list[dict] = []
+        pcm = self._stream_take()
+        if pcm.size:
+            text, chars, ms = self._transcribe_segment(pcm)
+            idx = self._stream_seg_index
+            self._stream_seg_index += 1
+            if self._on_segment is not None:
+                try:
+                    self._on_segment(idx, text, chars, ms)
+                except Exception:  # noqa: BLE001 - 回调不得拖垮主流程
+                    _log("⚠ stream 片段回调抛异常，已忽略")
+            _log(f"stream_end 完成 index={idx} chars={chars} ms={ms}")
+            segments = [{"index": idx, "text": text, "chars": chars, "ms": ms}]
+        self._stream_active = False
+        return {"frames": 0, "segments": segments}
+
+    def stream_cancel(self) -> dict:
+        """`asr_stream_cancel` → {}：丢弃流式缓冲并关闭会话（Esc 取消）。"""
+        self._stream_take()
+        self._stream_active = False
+        self._on_segment = None
+        return {}
+
+    # ------------------------------------------------------------ 流式内部
+
+    def _stream_clear(self) -> None:
+        self._stream_buf = []
+        self._stream_frames = 0
+        self._stream_seg_index = 0
+        self._stream_last_eval = 0
+        self._stream_overflow_warned = False
+
+    def _stream_take(self) -> np.ndarray:
+        """取出并清空流式缓冲。空缓冲返回空数组。"""
+        if not self._stream_buf:
+            self._stream_frames = 0
+            self._stream_overflow_warned = False
+            return np.zeros(0, dtype=np.int16)
+        pcm = np.concatenate(self._stream_buf).astype(np.int16, copy=False)
+        self._stream_buf = []
+        self._stream_frames = 0
+        self._stream_overflow_warned = False
+        return pcm
+
+    def _stream_eval(self) -> list[dict]:
+        """对当前缓冲跑 VAD 切分，转写全部已闭合语音段，保留未闭合尾段。
+
+        最后一段若 end 抵达缓冲末尾，说明说话人可能仍未停顿（仍在“开口”
+        状态），保留到下一轮或 `stream_end` 再转写；其余均为已闭合段，立
+        即下发。
+        """
+        buf = (
+            np.concatenate(self._stream_buf).astype(np.int16, copy=False)
+            if self._stream_buf
+            else np.zeros(0, dtype=np.int16)
+        )
+        if buf.size == 0:
+            self._stream_last_eval = self._stream_frames
+            return []
+
+        # 语音段切分：优先 Silero（use_vad 且模型可用），否则能量法 / Rust 扩展回退
+        if self.use_vad:
+            self._ensure_vad()
+        vad_inst = self._vad
+        if vad_inst is not None:
+            segments = vad_inst.segment(buf, self.vad_cfg)
+        else:
+            segments = vad.segment(buf, self.vad_cfg)
+
+        # 最后一段若 end == len(buf) 表示尚未检测到段后静音，视为未闭合，保留
+        closed = segments[:-1] if segments and segments[-1][1] >= buf.size else segments
+
+        out: list[dict] = []
+        consumed = 0
+        for s, e in closed:
+            seg_pcm = buf[s:e]
+            text, chars, ms = self._transcribe_segment(seg_pcm)
+            idx = self._stream_seg_index
+            self._stream_seg_index += 1
+            if self._on_segment is not None:
+                try:
+                    self._on_segment(idx, text, chars, ms)
+                except Exception:  # noqa: BLE001 - 回调不得拖垮主流程
+                    _log("⚠ stream 片段回调抛异常，已忽略")
+            # 硬约束：只记片段索引、长度与耗时，禁止出现识别文本
+            _log(f"stream_segment 完成 index={idx} chars={chars} ms={ms}")
+            out.append({"index": idx, "text": text, "chars": chars, "ms": ms})
+            consumed = e
+
+        if consumed:
+            # 已下发片段的前缀可丢弃，只保留未闭合尾段（含尾部静音）供下一轮续接
+            tail = buf[consumed:]
+            self._stream_buf = [tail.copy()] if tail.size else []
+            self._stream_frames = tail.size
+        self._stream_last_eval = self._stream_frames
+        return out
+
+    def _transcribe_segment(self, seg_pcm: np.ndarray) -> tuple[str, int, int]:
+        """对单个语音段做首尾裁剪 + SenseVoice 解码，返回 (text, chars, ms)。"""
+        prepared, _ = prepare_pcm(
+            seg_pcm,
+            use_vad=False,   # 已由 stream 层切分，此处只做首尾静音裁剪
+            vad=None,
+            vad_cfg=self.vad_cfg,
+            trim_silence=self.trim_silence,
+            trim_cfg=self.trim_cfg,
+            sample_rate=self.sample_rate,
+        )
+        t0 = time.perf_counter()
+        text = ""
+        if prepared.size:
+            # 持锁解码：与 warmup 线程的空跑互斥（recognizer 非线程安全）
+            with self._load_lock:
+                res = asr.transcribe(prepared.tobytes(), self.sample_rate)
+            text = str(res.get("text", ""))
+        ms = max(0, int((time.perf_counter() - t0) * 1000))
+        return text, len(text), ms
+
     def correct(self, text: str) -> dict:
         """`correct` params={text} → {applied, text, fixes, reason, ms}。
 
@@ -391,7 +591,15 @@ class AsrRuntime:
             raise ValueError("correct.text 必须是字符串")
         with self._load_lock:
             self._ensure_correction_locked()
-            result = correction.correct(text)
+            history: list[str] = []
+            if self._store is not None and self.correction_history_limit > 0:
+                try:
+                    history = self._store.correction_history(self.correction_history_limit)
+                except Exception as exc:  # noqa: BLE001 - 历史不可用时不能拦住纠错
+                    _log(f"⚠ 纠错历史读取失败，按无历史处理：{type(exc).__name__}")
+            result = correction.correct(
+                text, history=history, custom_prompt=self.correction_prompt
+            )
         if result.applied:
             # 硬约束：日志只记长度，禁止出现文本
             _log(f"correct 采纳 fixes={result.fixes} in={len(text)} out={len(result.text)} ms={result.ms}")

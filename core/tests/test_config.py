@@ -138,6 +138,32 @@ def test_use_itn_defaults_on_and_roundtrips():
     assert config.load_raw()[0]["use_itn"] == "1"
 
 
+def test_correction_prompt_and_history_live_in_json():
+    config.save_raw({"language": "zh"})
+    defaults = user_settings.load(None)
+    assert defaults.correction_history_limit == 10
+    assert defaults.correction_prompt == ""
+    assert defaults.store_text is True
+
+    custom = user_settings.update(
+        defaults,
+        correction_history_limit=10,
+        correction_prompt="把 xi feng 统一为 Xifeng；专业术语不要改写",
+        store_text=False,
+    )
+    assert user_settings.save(None, custom) is True
+    raw, _ = config.load_raw()
+    assert raw["correction_history_limit"] == "10"
+    assert raw["correction_prompt"] == "把 xi feng 统一为 Xifeng；专业术语不要改写"
+    assert raw["store_text"] == "0"
+
+    # 界面只保存另一个设置，也必须保留手改的提示词与历史轮数。
+    saved = user_settings.update(user_settings.load(None), theme="light")
+    assert user_settings.save(None, saved) is True
+    assert user_settings.load(None).correction_prompt == custom.correction_prompt
+    assert user_settings.load(None).correction_history_limit == 10
+
+
 def test_metadata_keys_are_not_treated_as_settings():
     config.save_raw({"language": "en", "migrated_from": "sqlite", "schema_version": 1})
     cfg = user_settings.load(None)

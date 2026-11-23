@@ -93,6 +93,22 @@ def test_empty_text_is_not_stored(store: Store) -> None:
     assert store.recent(1)[0]["text"] is None
 
 
+def test_correction_history_returns_last_ten_successes_oldest_first(store: Store) -> None:
+    for i in range(12):
+        store.add_history(_trace(chars=3), f"第{i + 1}轮")
+        store.add_history(_trace(Outcome.FAILED, chars=0), f"失败{i + 1}轮")
+        store.add_history(_trace(Outcome.DROPPED, chars=0), "")
+    assert store.correction_history() == [f"第{i}轮" for i in range(3, 13)]
+    assert store.correction_history(2) == ["第11轮", "第12轮"]
+    assert store.correction_history(0) == []
+
+
+def test_correction_history_without_stored_text_is_empty(tmp_path: Path) -> None:
+    with Store(tmp_path / "private.db", store_text=False) as s:
+        s.add_history(_trace(chars=4), "不应进入提示词")
+        assert s.correction_history() == []
+
+
 def test_error_is_truncated(store: Store) -> None:
     store.add_history(_trace(Outcome.FAILED, error="x" * 500), None)
     assert len(store.recent(1)[0]["error"]) <= 200

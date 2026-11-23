@@ -341,7 +341,7 @@ def test_correct_applied_returns_fixed_text(
     monkeypatch.setattr(correction, "warmup", lambda: 3)
     monkeypatch.setattr(
         correction, "correct",
-        lambda text: CorrectionResult(text="今天下午三点开会", applied=True, reason="ok", fixes=2, ms=40),
+        lambda text, **_kw: CorrectionResult(text="今天下午三点开会", applied=True, reason="ok", fixes=2, ms=40),
     )
     rt = AsrRuntime(autostart_warmup=False, model_correct=True)
     _ready, resp = _run(
@@ -354,6 +354,61 @@ def test_correct_applied_returns_fixed_text(
     err = capsys.readouterr().err
     assert "今天" not in err                       # 红线：日志禁止出现识别文本
     assert "fixes=2" in err and "in=8 out=8" in err
+
+
+def test_correct_uses_recent_history_and_custom_prompt(
+    store: Store, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from xifeng.trace import Outcome, Trace
+
+    for i in range(12):
+        store.add_history(Trace(outcome=Outcome.INJECTED), f"历史第{i + 1}轮")
+    store.add_history(Trace(outcome=Outcome.FAILED), "失败历史不应读取")
+    seen: dict[str, object] = {}
+
+    def fake_correct(text: str, **kwargs: object):
+        seen.update(kwargs)
+        return CorrectionResult(text=text, reason="same")
+
+    from xifeng.correction import CorrectionResult
+
+    monkeypatch.setattr(correction, "load", lambda **_kw: True)
+    monkeypatch.setattr(correction, "warmup", lambda: 1)
+    monkeypatch.setattr(correction, "correct", fake_correct)
+    rt = AsrRuntime(
+        autostart_warmup=False,
+        model_correct=True,
+        store=store,
+        correction_history_limit=10,
+        correction_prompt="术语统一为 Xifeng",
+    )
+    _ready, resp = _run(store, rt, {"id": 1, "method": "correct", "params": {"text": "当前句"}})
+    assert resp["ok"] is True
+    assert seen["history"] == [f"历史第{i}轮" for i in range(3, 13)]
+    assert seen["custom_prompt"] == "术语统一为 Xifeng"
+
+
+def test_correct_ignores_history_when_store_text_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from xifeng.correction import CorrectionResult
+    from xifeng.trace import Outcome, Trace
+
+    s = Store(tmp_path / "private.db", store_text=False)
+    try:
+        s.add_history(Trace(outcome=Outcome.INJECTED), "不应进入提示词")
+        seen: dict[str, object] = {}
+        monkeypatch.setattr(correction, "load", lambda **_kw: True)
+        monkeypatch.setattr(correction, "warmup", lambda: 1)
+        monkeypatch.setattr(
+            correction, "correct",
+            lambda text, **kw: seen.update(kw) or CorrectionResult(text=text, reason="same"),
+        )
+        rt = AsrRuntime(autostart_warmup=False, model_correct=True, store=s)
+        _ready, resp = _run(s, rt, {"id": 1, "method": "correct", "params": {"text": "当前句"}})
+        assert resp["ok"] is True and seen["history"] == []
+    finally:
+        s.close()
 
 
 def test_correct_rejects_non_string(store: Store, fake_asr: dict) -> None:

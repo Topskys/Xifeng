@@ -234,6 +234,8 @@ def ipc_mode(args: argparse.Namespace, argv: list[str] | None = None) -> int:
             use_vad=args.vad,
             trim_silence=args.trim,
             model_correct=cfg.model_correct,
+            correction_prompt=cfg.correction_prompt,
+            correction_history_limit=cfg.correction_history_limit,
             store=store,
         )
         try:
@@ -647,8 +649,10 @@ def main(argv: list[str] | None = None) -> int:
             post=user_settings.post_config(user_cfg),
             asr_threads=args.threads,
             download_source=args.download_source,
+            correction_history_limit=user_cfg.correction_history_limit,
+            correction_prompt=user_cfg.correction_prompt,
         )
-        pipe = Pipeline(cfg, sink)
+        pipe = Pipeline(cfg, sink, history_provider=store)
 
         print(f"[asr] backend={args.backend} model_dir={args.model_dir or os.environ.get('IME_MODELS_DIR') or '(默认)'}")
         try:

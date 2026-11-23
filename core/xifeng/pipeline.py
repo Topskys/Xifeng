@@ -42,6 +42,9 @@ class PipelineConfig:
     # ASR 推理线程数与模型下载源（GUI 配置页同步）
     asr_threads: int = asr.DEFAULT_THREADS
     download_source: str = "modelscope"
+    # 本地纠错上下文：config.json 可改最近 N 轮与自定义领域提示
+    correction_history_limit: int = correction.DEFAULT_HISTORY_LIMIT
+    correction_prompt: str = ""
 @dataclass
 class Result:
     trace: Trace
@@ -145,9 +148,15 @@ def prepare_pcm(
 
 
 class Pipeline:
-    def __init__(self, cfg: PipelineConfig | None = None, sink: TraceSink | None = None) -> None:
+    def __init__(
+        self,
+        cfg: PipelineConfig | None = None,
+        sink: TraceSink | None = None,
+        history_provider: object | None = None,
+    ) -> None:
         self.cfg = cfg or PipelineConfig()
         self.sink = sink
+        self.history_provider = history_provider
         self._counter = 0
         self._vad: vadlib.SileroVad | None = None
 
@@ -251,7 +260,16 @@ class Pipeline:
         # --- 本地模型纠错（可选；守卫拒绝就保持原文，G32）
         if cleaned is not None and cfg.model_correct:
             t_c = time.perf_counter()
-            fix = correction.correct(cleaned)
+            history: list[str] = []
+            provider = self.history_provider
+            if provider is not None and cfg.correction_history_limit > 0:
+                try:
+                    history = provider.correction_history(cfg.correction_history_limit)
+                except Exception:  # noqa: BLE001 - 历史不可用不能拦住本次输入
+                    history = []
+            fix = correction.correct(
+                cleaned, history=history, custom_prompt=cfg.correction_prompt
+            )
             trace.ms_correct = max(0, int((time.perf_counter() - t_c) * 1000))
             if fix.applied:
                 cleaned = postprocess.normalize(fix.text, cfg.post)

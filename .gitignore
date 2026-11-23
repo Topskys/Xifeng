@@ -33,6 +33,7 @@ vi-shots-*/
 .tauri-work/
 python/tmp*/
 core/tmp*/
+xifeng-correction-context-*/
 
 # Rust
 target/

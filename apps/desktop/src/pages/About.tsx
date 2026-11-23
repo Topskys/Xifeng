@@ -68,7 +68,7 @@ export function AboutPage({
       <Card className="mt-3 rounded-xl border-border p-5">
         <div className="text-sm font-semibold">简介</div>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Xifeng（溪风）是一款 Windows 语音输入法：SenseVoice 识别、
+          溪风是一款基于语音模型本地推理的语音输入法，SenseVoice 识别、
           可选本地小模型润色整句、支持自定义术语表。音频与文本不出本机，
           唯一的网络请求是模型下载与更新检查。
         </p>

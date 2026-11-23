@@ -1,7 +1,7 @@
 [project]
 name = "xifeng-spike"
 version = "0.2.0"
-description = "Xifeng M0 spike：验证 ASR 真实耗时、SendInput 成功率、端到端延迟"
+description = "溪风：基于语音模型本地推理的语音输入法（ASR 运行时）"
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "numpy>=1.26",

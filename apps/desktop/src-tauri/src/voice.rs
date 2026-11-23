@@ -47,7 +47,7 @@ const FEED_INTERVAL_MS: u64 = 40; // 喂送窗口：每窗攒 ≥40ms 音频作�
 /// 硬约束：音频回调里禁止 IO/加锁/推理 —— 这里只有原子游标读写。
 /// 满了就丢新数据并计数（与 Python `asr_feed` 60s 上限的"丢弃新数据"同语义，
 /// 到 60s 早被状态机的 MAX_SECONDS 截断了，正常到不了这里）。
-struct Ring {
+pub struct Ring {
     cells: Box<[AtomicU16]>, // i16 的位模式
     cap: usize,
     head: AtomicUsize, // 写游标（生产者独占写）
@@ -56,7 +56,7 @@ struct Ring {
 }
 
 impl Ring {
-    fn new(cap: usize) -> Self {
+    pub fn new(cap: usize) -> Self {
         Self {
             cells: (0..cap).map(|_| AtomicU16::new(0)).collect(),
             cap,
@@ -66,7 +66,7 @@ impl Ring {
         }
     }
 
-    fn push(&self, s: i16) {
+    pub fn push(&self, s: i16) {
         let head = self.head.load(Ordering::Relaxed);
         let tail = self.tail.load(Ordering::Acquire);
         if head - tail >= self.cap {
@@ -78,7 +78,7 @@ impl Ring {
     }
 
     /// 取走至多 `max` 个样本。
-    fn drain(&self, max: usize, out: &mut Vec<i16>) {
+    pub fn drain(&self, max: usize, out: &mut Vec<i16>) {
         let head = self.head.load(Ordering::Acquire);
         let mut tail = self.tail.load(Ordering::Relaxed);
         let n = (head - tail).min(max);

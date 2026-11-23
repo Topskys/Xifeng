@@ -145,7 +145,7 @@ export function ConfigPage({
           </Row>
           <Row
             title="常驻麦克风"
-            desc="开启后麦克风一直占用、系统录音指示灯常亮，换来按下零开流延迟；默认关闭（按下才开、松开即释放）"
+            desc="开启后系统录音指示灯常亮，零开流延迟，默认关闭"
           >
             <Switch checked={s.resident_mic} onCheckedChange={(v) => patch({ resident_mic: v })} />
           </Row>
@@ -164,6 +164,15 @@ export function ConfigPage({
           </Row>
           <Row title="录音指示浮窗" desc="按住说话时屏幕下方显示录音状态与音量">
             <Switch checked={s.show_popup} onCheckedChange={(v) => patch({ show_popup: v })} />
+          </Row>
+          <Row
+            title="流式输出（句内分段预览）"
+            desc="长语音按住说话时，每段识别完立即注入光标处，默认关闭（句级输出）"
+          >
+            <Switch
+              checked={s.streaming_enabled}
+              onCheckedChange={(v) => patch({ streaming_enabled: v })}
+            />
           </Row>
           <Row
             title="识别语言"

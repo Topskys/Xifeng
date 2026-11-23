@@ -29,6 +29,14 @@ export interface Settings {
   language: string
   /** ITN 标点与数字改写（默认开启；中英混排时可关闭） */
   use_itn: boolean
+  /** 本地纠错读取的最近成功历史轮数（0–50，默认 10；config.json 手改） */
+  correction_history_limit: number
+  /** 自定义术语/风格提示；不能关闭纠错安全守卫 */
+  correction_prompt: string
+  /** 是否把识别文本存入本地历史库 */
+  store_text: boolean
+  /** 流式输出：句内分段实时注入，默认关（句级输出基线） */
+  streaming_enabled: boolean
 }
 
 export interface ModelInfo {
@@ -107,4 +115,67 @@ export interface Bootstrap {
   models: { current: string; list: ModelInfo[] }
   correction: { available: boolean; name: string; sizeMB: number; dir: string }
   autostart: boolean
+}
+
+/* ===== 流式输出（分段识别推送） =====
+ * 壳通过 Tauri Event 向前端推送每段识别结果；前端只监听，不主动拉取。
+ * 以下事件名与 payload 结构是前端侧的期望契约，Rust 侧（另一子 Agent）
+ * 实现时应与此对齐。不涉及 Python / webgui。
+ */
+
+/** 壳 → 前端的 Tauri 事件名。 */
+export const STREAM_EVENT = {
+  /** 每段识别结果；payload 为 StreamSegment。 */
+  segment: "voice://stream/segment",
+  /** 流式结束；payload 为 StreamEnd。 */
+  end: "voice://stream/end",
+  /** 用户取消后壳确认；payload 为 StreamCancelled。 */
+  cancelled: "voice://stream/cancelled",
+} as const
+
+/** 分段注入状态。 */
+export type StreamStatus =
+  | "idle" // 未开始
+  | "listening" // 壳正在推送分段
+  | "injecting" // 当前分段正在注入
+  | "injected" // 分段已注入 / 流式已完成
+  | "failed" // 分段 / 流式失败
+  | "cancelled" // 用户已取消
+
+/** 单段识别结果（壳每识别一段推送一次）。 */
+export interface StreamSegment {
+  /** 分段索引，从 1 开始递增 */
+  index: number
+  /** 该段识别文本（原始，未经后处理 / 纠错） */
+  text: string
+  /** 该段时间戳（ISO 8601） */
+  ts: string
+  /** 是否为流式的最后一段 */
+  final: boolean
+  /** 该段的注入状态 */
+  status: StreamStatus
+}
+
+/** 流式结束事件的 payload。 */
+export interface StreamEnd {
+  ok: boolean
+  /** 最后一段的索引 */
+  index: number
+  /** 后处理与纠错守卫后合并的最终完整文本（ok 为 true 时有效） */
+  text: string
+  /** ok 为 false 时的错误信息 */
+  error: string | null
+}
+
+/** 取消确认事件的 payload。 */
+export interface StreamCancelled {
+  index: number
+}
+
+/** 前端侧流式会话状态快照。 */
+export interface StreamState {
+  status: StreamStatus
+  segments: StreamSegment[]
+  finalText: string | null
+  error: string | null
 }

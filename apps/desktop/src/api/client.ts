@@ -11,7 +11,10 @@ import type {
   ModelInfo,
   Settings,
   StatsPayload,
+  StreamEnd,
+  StreamSegment,
 } from "@/api/types"
+import { STREAM_EVENT } from "@/api/types"
 
 async function call<T>(path: string, params: Record<string, unknown> = {}): Promise<T> {
   const route = ROUTES[path]
@@ -39,6 +42,46 @@ async function call<T>(path: string, params: Record<string, unknown> = {}): Prom
   return httpCall<T>(path, route.verb, params)
 }
 
+type TauriEventListen = (
+  e: string,
+  h: (ev: { payload: unknown }) => void,
+) => Promise<() => void>
+
+function getTauriEventListen(): TauriEventListen | undefined {
+  if (typeof window === "undefined") return undefined
+  const tauri = (window as unknown as {
+    __TAURI__?: { event?: { listen?: TauriEventListen } }
+  }).__TAURI__
+  return tauri?.event?.listen
+}
+
+/** 监听壳推送的流式分段与结束事件。非 Tauri 环境返回 null。 */
+export function streamListen({
+  onSegment,
+  onEnd,
+}: {
+  onSegment: (seg: StreamSegment) => void
+  onEnd: (end: StreamEnd) => void
+}): { unsubscribe: () => void } | null {
+  const listen = getTauriEventListen()
+  if (!listen) return null
+  let cancelled = false
+  const unsubs: (() => void)[] = []
+  const register = (event: string, handler: (ev: { payload: unknown }) => void) =>
+    listen(event, handler).then((u) => {
+      if (cancelled) u()
+      else unsubs.push(u)
+    })
+  register(STREAM_EVENT.segment, (ev) => onSegment(ev.payload as StreamSegment))
+  register(STREAM_EVENT.end, (ev) => onEnd(ev.payload as StreamEnd))
+  return {
+    unsubscribe: () => {
+      cancelled = true
+      unsubs.forEach((u) => u())
+    },
+  }
+}
+
 export const api = {
   bootstrap: () => call<Bootstrap>("/api/bootstrap"),
   stats: (period: string) => call<StatsPayload>("/api/stats", { period }),
@@ -52,6 +95,12 @@ export const api = {
     call<{ matches: string[] }>("/api/models/find", { name, files }),
   useModel: (path: string) =>
     call<{ current: string; list: ModelInfo[] }>("/api/models/use", { path }),
+  startModelDownload: (mirror: string, dir?: string) =>
+    call<{ job_id?: string; status?: string; error?: string }>("/api/models/download/start", { mirror, dir }),
+  getModelDownloadStatus: (jobId: string) =>
+    call<{ status: string; progress: number; message: string; error: string; result: any }>("/api/models/download/status", { job_id: jobId }),
+  cancelModelDownload: (jobId: string) =>
+    call<{ ok: boolean }>("/api/models/download/cancel", { job_id: jobId }),
   toggleAutostart: (enabled: boolean) =>
     call<{ ok: boolean; error: string }>("/api/autostart", { enabled }),
   prune: () => call<{ removed: number }>("/api/prune"),
@@ -60,4 +109,12 @@ export const api = {
     call<{ latest: string; current: string; update: boolean } | { error: string }>(
       "/api/check_update",
     ),
+  streamListen: ({
+    onSegment,
+    onEnd,
+  }: {
+    onSegment: (seg: StreamSegment) => void
+    onEnd: (end: StreamEnd) => void
+  }) => streamListen({ onSegment, onEnd }),
+  streamCancel: () => call<{ ok: boolean }>("/api/stream/cancel", {}),
 }

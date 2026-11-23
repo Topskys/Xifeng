@@ -28,6 +28,9 @@ FILES = ["model.int8.onnx", "tokens.txt"]
 MIRRORS = {
     "hf-mirror": f"https://hf-mirror.com/{REPO}/resolve/main",
     "hf": f"https://huggingface.co/{REPO}/resolve/main",
+    # ModelScope 官方源：国内直连，无需经 hf-mirror 代理。
+    # 若 repo/owner 实际与 HF 不同，请在此处按 ModelScope 上的页面地址修正。
+    "modelscope": f"https://modelscope.cn/models/{REPO}/resolve/master",
 }
 
 DEFAULT_DIR = Path(__file__).resolve().parent.parent / "models" / "asr" / "sensevoice-small-int8"

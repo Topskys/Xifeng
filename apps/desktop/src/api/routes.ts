@@ -13,10 +13,14 @@ export type ApiMethod =
   | "theme"
   | "models_use"
   | "models_find"
+  | "models_download_start"
+  | "models_download_status"
+  | "models_download_cancel"
   | "autostart"
   | "prune"
   | "open"
   | "check_update"
+  | "stream_cancel";
 
 /** HTTP path ↔ IPC method 对照表，与 webgui.py 的 Api 方法一一对应。 */
 export const ROUTES: Record<string, { method: ApiMethod; verb: "GET" | "POST" }> = {
@@ -29,8 +33,12 @@ export const ROUTES: Record<string, { method: ApiMethod; verb: "GET" | "POST" }>
   "/api/theme": { method: "theme", verb: "POST" },
   "/api/models/use": { method: "models_use", verb: "POST" },
   "/api/models/find": { method: "models_find", verb: "POST" },
+  "/api/models/download/start": { method: "models_download_start", verb: "POST" },
+  "/api/models/download/status": { method: "models_download_status", verb: "POST" },
+  "/api/models/download/cancel": { method: "models_download_cancel", verb: "POST" },
   "/api/autostart": { method: "autostart", verb: "POST" },
   "/api/prune": { method: "prune", verb: "POST" },
   "/api/open": { method: "open", verb: "POST" },
   "/api/check_update": { method: "check_update", verb: "POST" },
+  "/api/stream/cancel": { method: "stream_cancel", verb: "POST" },
 }

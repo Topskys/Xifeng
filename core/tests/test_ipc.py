@@ -19,7 +19,7 @@ from xifeng.store import Store
 
 SPIKE_DIR = Path(__file__).resolve().parents[1]
 
-#: 契约里的 14 个 method（ipc-contract.md「方法表」，冻结）
+#: 契约里的 method（ipc-contract.md「方法表」，冻结）
 CONTRACT_METHODS = {
     "bootstrap",
     "stats",
@@ -30,6 +30,9 @@ CONTRACT_METHODS = {
     "theme",
     "models_use",
     "models_find",
+    "models_download_start",
+    "models_download_status",
+    "models_download_cancel",
     "autostart",
     "prune",
     "open",
@@ -326,12 +329,86 @@ def test_serve_never_writes_non_json_even_when_api_prints(
 
 def test_method_table_matches_contract_and_api() -> None:
     assert set(ipc.METHODS) == CONTRACT_METHODS
-    assert len(ipc.METHODS) == 14
+    assert len(ipc.METHODS) == 17
     for method, target in ipc.METHODS.items():
         if method == "shutdown":
             assert target is None          # 主循环自己处理，没有 Api 方法
             continue
         assert callable(getattr(webgui.Api, target, None)), f"{method} → {target} 不存在"
+
+
+# ---------------------------------------------------------------- 模型下载（目标测试）
+
+def test_models_download_start_returns_job_id(
+    store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """models_download_start 返回 job_id，状态为 queued，不实际下载。"""
+    started: list[str] = []
+
+    def fake_worker(job_id: str, mirror: str, dest: str, script: str, python_exe: str) -> None:
+        started.append(job_id)
+
+    monkeypatch.setattr(webgui, "_download_worker", fake_worker)
+
+    res = _run(store, {"id": 1, "method": "models_download_start", "params": {"mirror": "hf-mirror"}})[1]
+    assert res["id"] == 1
+    assert "job_id" in res["result"]
+    assert res["result"]["status"] == "queued"
+    assert len(started) == 1           # 后台线程确实被启动
+
+
+def test_models_download_start_invalid_mirror(store: Store) -> None:
+    """非法镜像源返回错误，不启动下载。"""
+    res = _run(
+        store,
+        {"id": 1, "method": "models_download_start", "params": {"mirror": "ftp"}},
+    )[1]
+    assert "error" in res["result"]
+    assert "无效镜像源" in res["result"]["error"]
+
+
+def test_models_download_status_unknown_job(store: Store) -> None:
+    """查询不存在的 job_id 返回错误。"""
+    res = _run(
+        store,
+        {"id": 1, "method": "models_download_status", "params": {"job_id": "nope"}},
+    )[1]
+    assert "error" in res["result"]
+    assert "未找到下载任务" in res["result"]["error"]
+
+
+def test_models_download_cancel_unknown_job(store: Store) -> None:
+    """取消不存在的 job_id 返回错误。"""
+    res = _run(
+        store,
+        {"id": 1, "method": "models_download_cancel", "params": {"job_id": "nope"}},
+    )[1]
+    assert "error" in res["result"]
+    assert "未找到下载任务" in res["result"]["error"]
+
+
+def test_models_download_full_flow(store: Store, monkeypatch: pytest.MonkeyPatch) -> None:
+    """启动 → 查询 → 取消 完整流程，不实际下载。"""
+    states: list[str] = []
+
+    def fake_worker(job_id: str, mirror: str, dest: str, script: str, python_exe: str) -> None:
+        states.append("running")
+        import time as _t
+        _t.sleep(0.2)                  # 模拟下载耗时
+        states.append("completed")
+
+    monkeypatch.setattr(webgui, "_download_worker", fake_worker)
+
+    start = _run(store, {"id": 1, "method": "models_download_start", "params": {"mirror": "modelscope"}})[1]
+    job_id = start["result"]["job_id"]
+
+    # 查询：应该是 running（或已被 fake_worker 改成 completed）
+    status_res = _run(store, {"id": 2, "method": "models_download_status", "params": {"job_id": job_id}})[1]
+    assert "status" in status_res["result"]
+
+    # 取消
+    cancel_res = _run(store, {"id": 3, "method": "models_download_cancel", "params": {"job_id": job_id}})[1]
+    assert cancel_res["result"]["ok"] is True
 
 
 def test_runtime_method_table_matches_contract() -> None:

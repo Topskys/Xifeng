@@ -20,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,6 +37,13 @@ CHROME_CANDIDATES = (
 REPO = os.environ.get("IME_REPO", "Topskys/Xifeng")   # 更新检查 / GitHub 跳转用
 PORT = 8642  # 与 frontend/vite.config.ts 的 dev 代理一致
 PAGES = ("stats", "models", "config", "history", "about")
+
+# ---------------------------------------------------------------- 模型下载任务
+# 异步下载：frontend 先 POST /api/models/download/start 拿 job_id，
+# 再轮询 /api/models/download/status，可随时 POST /api/models/download/cancel。
+_download_jobs: dict[str, dict] = {}
+_download_lock = threading.Lock()
+_DOWNLOAD_TOTAL_SEC = 900  # 单个文件最多等待 15 分钟（curl 内部已有重试）
 
 
 def version_key(text: str) -> tuple[int, ...]:
@@ -408,6 +416,100 @@ class Api:
                 break
         return {"matches": matches}
 
+    def models_download_start(self, body: dict) -> dict:
+        """启动后台下载，返回 {job_id, status: "queued"}。"""
+        import subprocess
+        import sys
+        
+        mirror = str(body.get("mirror") or "hf-mirror").strip()
+        target_dir = body.get("dir")
+        
+        # 验证镜像源
+        valid_mirrors = ("modelscope", "hf-mirror", "github", "local")
+        if mirror not in valid_mirrors:
+            return {"error": f"无效镜像源：{mirror}，可选：{', '.join(valid_mirrors)}"}
+        
+        # 确定目标目录（paths.models_dir() 已含 sensevoice-small-int8）
+        if target_dir:
+            dest = Path(target_dir).resolve()
+        else:
+            dest = paths.models_dir()
+        
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            return {"error": f"无法创建目录 {dest}：{exc}"}
+        
+        # 调用 fetch_model.py（脚本在 core/，webgui.py 在 core/xifeng/）
+        script = Path(__file__).resolve().parents[1] / "fetch_model.py"
+        if not script.exists():
+            return {"error": f"下载脚本不存在：{script}"}
+        
+        mirror_map = {
+            "modelscope": "modelscope",
+            "hf-mirror": "hf-mirror",
+            "github": "hf",
+            "local": "hf-mirror",
+        }
+
+        job_id = str(uuid.uuid4())
+        with _download_lock:
+            _download_jobs[job_id] = {
+                "status": "queued",
+                "progress": 0,
+                "message": "已加入下载队列",
+                "error": "",
+                "result": None,
+                "proc": None,
+                "cancel": threading.Event(),
+            }
+
+        t = threading.Thread(
+            target=_download_worker,
+            args=(job_id, mirror_map[mirror], str(dest), str(script), sys.executable),
+            daemon=True,
+            name=f"model-download-{job_id[:8]}",
+        )
+        t.start()
+
+        return {"job_id": job_id, "status": "queued"}
+
+    def models_download_status(self, body: dict) -> dict:
+        """查询下载进度：{job_id} → {status, progress, message, error, result}。"""
+        job_id = str(body.get("job_id") or "").strip()
+        if not job_id:
+            return {"error": "缺少 job_id"}
+        with _download_lock:
+            job = _download_jobs.get(job_id)
+        if job is None:
+            return {"error": f"未找到下载任务：{job_id}"}
+        with _download_lock:
+            return {
+                "status": job["status"],
+                "progress": job["progress"],
+                "message": job["message"],
+                "error": job["error"],
+                "result": job["result"],
+            }
+
+    def models_download_cancel(self, body: dict) -> dict:
+        """取消下载：{job_id} → {ok: true}。"""
+        job_id = str(body.get("job_id") or "").strip()
+        if not job_id:
+            return {"error": "缺少 job_id"}
+        with _download_lock:
+            job = _download_jobs.get(job_id)
+        if job is None:
+            return {"error": f"未找到下载任务：{job_id}"}
+        job["cancel"].set()
+        proc = job["proc"]
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:  # noqa: BLE001
+                pass
+        return {"ok": True}
+
     def open(self, body: dict) -> dict:
         raw = body.get("path", "")
         if raw == "__data__":
@@ -420,6 +522,125 @@ class Api:
         if sys.platform == "win32":
             os.startfile(str(target))  # noqa: S606
         return {"ok": True}
+
+
+def _download_worker(job_id: str, mirror: str, dest: str, script: str, python_exe: str) -> None:
+    """后台线程：运行 fetch_model.py 下载，定期更新进度，支持取消。"""
+    import importlib.util
+    import subprocess
+
+    # 动态加载 fetch_model（core/ 不是包，不能相对导入）
+    spec = importlib.util.spec_from_file_location("fetch_model", script)
+    fm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fm)
+    MIRRORS = fm.MIRRORS
+    FILES = fm.FILES
+    remote_size = fm.remote_size
+
+    def _set(status: str, progress: int = -1, message: str = "", error: str = "", result: dict | None = None):
+        with _download_lock:
+            job = _download_jobs.get(job_id)
+            if job is None:
+                return
+            job["status"] = status
+            if progress >= 0:
+                job["progress"] = progress
+            if message:
+                job["message"] = message
+            if error:
+                job["error"] = error
+            if result is not None:
+                job["result"] = result
+
+    def _cancelled() -> bool:
+        with _download_lock:
+            job = _download_jobs.get(job_id)
+        return job is not None and job["cancel"].is_set()
+
+    _set("running", 0, "准备下载...")
+
+    try:
+        total = 0
+        for name in FILES:
+            total += remote_size(f"{mirror}/{name}")
+        if total == 0:
+            total = None
+
+        downloaded = 0
+        proc = None
+
+        for name in FILES:
+            if _cancelled():
+                _set("cancelled", message="已取消")
+                return
+            url = f"{mirror}/{name}"
+            dest_file = Path(dest) / name
+            have = dest_file.stat().st_size if dest_file.exists() else 0
+            expect = remote_size(url)
+
+            cmd = [
+                "curl", "-L", "--fail", "-sS",
+                "--retry", "10", "--retry-delay", "2", "--retry-all-errors",
+                "--speed-limit", "2048", "--speed-time", "30",
+                "-o", str(dest_file),
+            ]
+            if have:
+                cmd += ["-C", "-"]
+            cmd.append(url)
+
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            with _download_lock:
+                job = _download_jobs.get(job_id)
+                if job:
+                    job["proc"] = proc
+
+            last_size = have
+            while True:
+                if _cancelled():
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                    _set("cancelled", message="已取消")
+                    return
+                rc = proc.poll()
+                if rc is not None:
+                    break
+                cur = dest_file.stat().st_size if dest_file.exists() else 0
+                downloaded += cur - last_size
+                last_size = cur
+                if total:
+                    _set("running", min(100, int(downloaded / total * 100)), f"下载 {name}...")
+                else:
+                    _set("running", -1, f"下载 {name}（{cur} 字节）...")
+                time.sleep(1)
+
+            if rc != 0:
+                _set("failed", error=f"curl 失败（exit {rc}）：{name}")
+                return
+
+            final_size = dest_file.stat().st_size
+            downloaded += final_size - have
+            if expect and final_size != expect:
+                _set("failed", error=f"大小不符：{final_size} != {expect}（{name}）")
+                return
+
+        model_file = Path(dest) / "model.int8.onnx"
+        tokens_file = Path(dest) / "tokens.txt"
+        if not model_file.exists() or not tokens_file.exists():
+            _set("failed", error="下载完成但缺少必要文件")
+            return
+
+        size = model_file.stat().st_size + tokens_file.stat().st_size
+        _set("completed", 100, "下载完成", result={"ok": True, "path": str(dest), "size": size})
+    except Exception as exc:  # noqa: BLE001
+        _set("failed", error=str(exc)[:200])
+    finally:
+        with _download_lock:
+            job = _download_jobs.get(job_id)
+            if job:
+                job["proc"] = None
 
 
 # ---------------------------------------------------------------- HTTP
@@ -501,6 +722,9 @@ class Handler(BaseHTTPRequestHandler):
             "/api/prune": self.api.prune,
             "/api/check_update": self.api.check_update,
             "/api/models/find": self.api.models_find,
+            "/api/models/download/start": self.api.models_download_start,
+            "/api/models/download/status": self.api.models_download_status,
+            "/api/models/download/cancel": self.api.models_download_cancel,
             "/api/open": self.api.open,
         }
         handler = routes.get(path)

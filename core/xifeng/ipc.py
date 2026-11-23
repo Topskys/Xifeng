@@ -39,6 +39,9 @@ METHODS: dict[str, str | None] = {
     "theme": "theme",
     "models_use": "models_use",
     "models_find": "models_find",
+    "models_download_start": "models_download_start",
+    "models_download_status": "models_download_status",
+    "models_download_cancel": "models_download_cancel",
     "autostart": "autostart",
     "prune": "prune",
     "open": "open",
@@ -53,6 +56,10 @@ RUNTIME_METHODS: dict[str, str] = {
     "asr_feed": "feed",
     "asr_end": "end",
     "asr_cancel": "cancel",
+    "asr_stream_begin": "stream_begin",
+    "asr_stream_feed": "stream_feed",
+    "asr_stream_end": "stream_end",
+    "asr_stream_cancel": "stream_cancel",
     "correct": "correct",
     "session_record": "session_record",
     "set_language": "set_language",
@@ -66,8 +73,18 @@ _BODY_PARAM = frozenset(
         "theme",
         "models_use",
         "models_find",
+        "models_download_start",
+        "models_download_status",
+        "models_download_cancel",
         "autostart",
         "open",
+        #: D16 流式运行时方法：已在 `RUNTIME_METHODS` 中声明，分发时优先按
+        #: 具名参数解包（`_keyword_args`），此处收录主要为契约完整；对分发
+        #: 逻辑不产生额外影响，因为 `RUNTIME_METHODS` 优先于 `_BODY_PARAM`。
+        "asr_stream_begin",
+        "asr_stream_feed",
+        "asr_stream_end",
+        "asr_stream_cancel",
     }
 )
 
@@ -207,6 +224,8 @@ def _sync_runtime(api: Api, runtime: AsrRuntime) -> None:
             use_vad=getattr(s, "use_vad", None),
             trim_silence=getattr(s, "trim_silence", None),
             model_correct=getattr(s, "model_correct", None),
+            correction_prompt=getattr(s, "correction_prompt", None),
+            correction_history_limit=getattr(s, "correction_history_limit", None),
         )
     except Exception as exc:  # noqa: BLE001 - 热更失败不该让保存失败
         _log(f"⚠ 设置热更失败（已保存，下次启动生效）：{type(exc).__name__}: {exc}")

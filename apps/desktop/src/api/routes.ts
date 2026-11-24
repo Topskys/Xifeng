@@ -20,7 +20,7 @@ export type ApiMethod =
   | "prune"
   | "open"
   | "check_update"
-  | "stream_cancel";
+  | "asr_stream_cancel";
 
 /** HTTP path ↔ IPC method 对照表，与 webgui.py 的 Api 方法一一对应。 */
 export const ROUTES: Record<string, { method: ApiMethod; verb: "GET" | "POST" }> = {
@@ -40,5 +40,5 @@ export const ROUTES: Record<string, { method: ApiMethod; verb: "GET" | "POST" }>
   "/api/prune": { method: "prune", verb: "POST" },
   "/api/open": { method: "open", verb: "POST" },
   "/api/check_update": { method: "check_update", verb: "POST" },
-  "/api/stream/cancel": { method: "stream_cancel", verb: "POST" },
+  "/api/stream/cancel": { method: "asr_stream_cancel", verb: "POST" },
 }

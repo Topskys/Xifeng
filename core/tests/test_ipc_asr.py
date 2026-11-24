@@ -823,3 +823,49 @@ def test_settings_save_with_new_language_syncs_runtime(store: Store, fake_asr: d
         assert loads == ["zh", "en"]
     finally:
         asr_mod.load = orig_load
+
+
+# ---------------------------------------------------------------- 流式（句内分段）
+
+def test_stream_begin_feed_end(store: Store, fake_asr: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    """流式：begin → feed → end 能下发分段，索引从 0 递增。"""
+    # VAD 段切分桩：整个缓冲作为一个段；end == buf.size 会被判为未闭合而保留，
+    # 所以 feed 不产生段，end 时作为尾段转写产生 0 号片段。
+    import xifeng.vad as vad_mod
+    monkeypatch.setattr(
+        vad_mod,
+        "segment",
+        lambda buf, cfg: ([(0, len(buf))] if len(buf) else []),
+    )
+    rt = AsrRuntime(autostart_warmup=False, use_vad=True)
+    pcm = _pcm_bytes(1.0)
+    ready, begin, feed, end = _run(
+        store, rt,
+        {"id": 1, "method": "asr_stream_begin", "params": {}},
+        {"id": 2, "method": "asr_stream_feed", "params": {"pcm_b64": _b64(pcm)}},
+        {"id": 3, "method": "asr_stream_end", "params": {}},
+    )
+    assert begin["ok"] is True and begin["result"] == {}
+    assert feed["ok"] is True and feed["result"]["frames"] == 16000
+    assert end["ok"] is True
+    segs = end["result"]["segments"]
+    assert len(segs) == 1
+    assert segs[0]["index"] == 0
+    assert segs[0]["chars"] == len(segs[0]["text"])
+    assert fake_asr["transcribe"] == 1
+
+
+def test_stream_cancel_clears_state(store: Store, fake_asr: dict) -> None:
+    """stream_cancel 清空缓冲并关闭会话。"""
+    rt = AsrRuntime(autostart_warmup=False)
+    pcm = _pcm_bytes(0.5)
+    ready, begin, feed, cancel = _run(
+        store, rt,
+        {"id": 1, "method": "asr_stream_begin", "params": {}},
+        {"id": 2, "method": "asr_stream_feed", "params": {"pcm_b64": _b64(pcm)}},
+        {"id": 3, "method": "asr_stream_cancel", "params": {}},
+    )
+    assert cancel["ok"] is True and cancel["result"] == {}
+    assert rt._stream_active is False
+    assert rt._stream_frames == 0
+

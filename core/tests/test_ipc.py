@@ -46,6 +46,10 @@ RUNTIME_METHODS = {
     "asr_feed",
     "asr_end",
     "asr_cancel",
+    "asr_stream_begin",
+    "asr_stream_feed",
+    "asr_stream_end",
+    "asr_stream_cancel",
     "correct",
     "session_record",
     "set_language",
@@ -416,7 +420,7 @@ def test_runtime_method_table_matches_contract() -> None:
     from xifeng.asr_runtime import AsrRuntime
 
     assert set(ipc.RUNTIME_METHODS) == RUNTIME_METHODS
-    assert len(ipc.RUNTIME_METHODS) == 7
+    assert len(ipc.RUNTIME_METHODS) == 11
     assert set(ipc.RUNTIME_METHODS) & set(ipc.METHODS) == set()
     for method, target in ipc.RUNTIME_METHODS.items():
         assert callable(getattr(AsrRuntime, target, None)), f"{method} → {target} 不存在"

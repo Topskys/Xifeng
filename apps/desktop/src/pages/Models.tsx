@@ -2,7 +2,7 @@ import { FolderOpen, Plus, RefreshCw, Download, AlertCircle, Loader2 } from "luc
 import { useRef, useState } from "react";
 
 import { api, type Bootstrap } from "@/api";
-import { Badge } from "@/components/ui/badge";
+import type { ModelInfo } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/pages/Stats";
@@ -13,6 +13,29 @@ function fmtSize(n: number) {
   return n >= 1024 ** 3
     ? `${(n / 1024 ** 3).toFixed(1)} GB`
     : `${(n / 1024 ** 2).toFixed(0)} MB`;
+}
+
+/** 按目录名推断模型用途（截图里的「语音识别 / 文本润色」分类，纯文字用）。 */
+function modelKind(m: ModelInfo): string {
+  const n = m.name.toLowerCase();
+  if (n.includes("sensevoice") || n.includes("paraformer") || n.includes("firered") || n.includes("whisper")) {
+    return "语音识别";
+  }
+  if (n.includes("qwen") || n.includes("llm") || n.includes("0.5b") || n.includes("1.5b")) {
+    return "文本润色";
+  }
+  return "模型";
+}
+
+/** 模型描述（截图里那行小字，纯文字用）。 */
+function modelDesc(m: ModelInfo): string {
+  const n = m.name.toLowerCase();
+  if (n.includes("sensevoice")) return "中英日粤韩 · 精度高速度快";
+  if (n.includes("paraformer")) return "轻量流式识别";
+  if (n.includes("firered")) return "更高精度中文识别";
+  if (n.includes("0.5b")) return "智能标点与口语转书面语";
+  if (n.includes("1.5b")) return "更强的润色与纠错能力";
+  return "本地模型";
 }
 
 const MIRRORS = [
@@ -31,6 +54,8 @@ export function ModelsPage({
   refreshBoot: (b: Bootstrap) => void;
 }) {
   const { models } = boot;
+  const asrModels = models.list.filter((m) => modelKind(m) === "语音识别");
+  const llmModels = models.list.filter((m) => modelKind(m) === "文本润色");
 
   const [downloading, setDownloading] = useState(false);
   const [selectedMirror, setSelectedMirror] = useState<string>(MIRRORS[0].value);
@@ -143,9 +168,6 @@ export function ModelsPage({
     jobRef.current = null;
   };
 
-  // 名字不能叫 `use`：React 约定 `use*` 前缀是 Hook，
-  // oxlint 的 rules-of-hooks 会把 `use(...)` 当成 Hook 调用来检查（报错）。
-  // 这只是个普通异步函数，改名 `switchModel` 语义也更准。
   const switchModel = async (path: string) => {
     try {
       await api.useModel(path);
@@ -155,6 +177,9 @@ export function ModelsPage({
       showToast(String(e), false);
     }
   };
+
+  /** 当前使用区下拉：显示「模型名（量化 · 大小）」，纯文字。 */
+  const modelOptionLabel = (m: ModelInfo) => `${m.name}（${m.quant} · ${fmtSize(m.size)}）`;
 
   return (
     <div className="p-6 mx-auto w-full max-w-4xl">
@@ -177,35 +202,63 @@ export function ModelsPage({
         </Button>
       </PageHeader>
 
+      {/* 当前使用 */}
       <div className="mb-2 mt-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
-        可用模型列表
+        当前使用
+      </div>
+      <Card className="mt-4 p-5">
+        <div className="mb-3 text-sm text-muted-foreground">语音识别模型</div>
+        <Select
+          value={asrModels.find((m) => m.current)?.path ?? ""}
+          onValueChange={switchModel}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="选择语音识别模型" />
+          </SelectTrigger>
+          <SelectContent>
+            {asrModels.map((m) => (
+              <SelectItem key={m.path} value={m.path}>{modelOptionLabel(m)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <div className="mb-3 mt-4 text-sm text-muted-foreground">文本润色模型（可选）</div>
+        <Select
+          value={llmModels.find((m) => m.current)?.path ?? ""}
+          onValueChange={switchModel}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="选择文本润色模型" />
+          </SelectTrigger>
+          <SelectContent>
+            {llmModels.map((m) => (
+              <SelectItem key={m.path} value={m.path}>{modelOptionLabel(m)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Card>
+
+      {/* 全部模型 */}
+      <div className="mt-6 mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
+        全部模型
       </div>
       {models.list.length === 0 ? (
         <Card className="p-5">
-          <div className="text-sm font-semibold text-destructive">
-            未找到可用模型
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            把 sensevoice-small-int8 目录放到模型路径，或在上方添加。需要
-            model.int8.onnx（或 model.onnx）与 tokens.txt。
-          </p>
+          <div className="text-sm text-muted-foreground">未找到可用模型</div>
         </Card>
       ) : (
         <div className="flex flex-col gap-3">
           {models.list.map((m) => (
             <Card key={m.path} className="flex flex-row items-center gap-4 p-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-sm font-bold">
-                SV
-              </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                   <span className="text-sm font-semibold">{m.name}</span>
-                  <Badge variant="muted">{m.quant}</Badge>
-                  <Badge variant="muted">{fmtSize(m.size)}</Badge>
-                  {m.current && <Badge variant="success">当前使用</Badge>}
+                  <span className="text-xs text-muted-foreground">{modelKind(m)}</span>
+                  <span className="text-xs text-muted-foreground">{m.quant}</span>
+                  {m.current && <span className="text-xs text-muted-foreground">使用中</span>}
                 </div>
                 <div className="mt-1 truncate text-xs text-muted-foreground/70">
-                  {m.ready ? m.path : "缺少模型文件"}
+                  {modelDesc(m)} · {fmtSize(m.size)}
                 </div>
               </div>
               <div className="flex shrink-0 gap-2">
@@ -233,6 +286,7 @@ export function ModelsPage({
         </div>
       )}
 
+      {/* 下载模型 */}
       <div className="mt-6 mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
         下载模型
       </div>
@@ -241,7 +295,7 @@ export function ModelsPage({
         <p className="text-xs text-muted-foreground mb-4">
           约 228 MB，下载后自动校验大小与文件完整性。支持断点续传。
         </p>
-        
+
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
           <Select value={selectedMirror} onValueChange={setSelectedMirror}>
             <SelectTrigger className="w-full sm:w-[200px]">
@@ -255,7 +309,7 @@ export function ModelsPage({
               ))}
             </SelectContent>
           </Select>
-          
+
           <Button
             size="default"
             variant={downloadStatus === "failed" || downloadStatus === "cancelled" ? "outline" : "default"}
@@ -303,17 +357,6 @@ export function ModelsPage({
             <span>下载失败，可重试。</span>
           </div>
         )}
-      </Card>
-
-      <div className="mt-6 mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
-        说明
-      </div>
-      <Card className="mt-4 p-5">
-        <div className="text-sm font-semibold">模型目录</div>
-        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-          本版本只支持 SenseVoice 系列（sherpa-onnx）。目录内需要
-          model.int8.onnx（或 model.onnx）与 tokens.txt；换模型后下次说话生效。
-        </p>
       </Card>
     </div>
   );

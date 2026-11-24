@@ -208,7 +208,15 @@ impl Mic {
     /// 开始本次录音：打开喂送闸门并起喂送线程（此后到达的样本都送运行时）。
     /// 写入闸门（capturing）在按下热键时就由 `arm()` 打开——观察窗内到达的
     /// 音频已在缓冲里，这里不削句首（G40/G42 口径不变）。
-    fn begin(&mut self, bridge: &Arc<PythonBridge>, app: &AppHandle) {
+    fn begin(
+        &mut self,
+        bridge: &Arc<PythonBridge>,
+        app: &AppHandle,
+        streaming: bool,
+        post_cfg: ime_post::PostConfig,
+        inject_cfg: InjectConfig,
+        model_correct: bool,
+    ) {
         self.collecting.store(true, Ordering::SeqCst);
         let handle = spawn_feeder(
             Arc::clone(&self.ring),
@@ -217,6 +225,10 @@ impl Mic {
             self.native_channels,
             Arc::clone(bridge),
             app.clone(),
+            streaming,
+            post_cfg,
+            inject_cfg,
+            model_correct,
         );
         *self.feeder.lock().unwrap() = Some(handle);
     }
@@ -335,12 +347,17 @@ fn spawn_feeder(
     channels: usize,
     bridge: Arc<PythonBridge>,
     app: AppHandle,
+    streaming: bool,
+    post_cfg: ime_post::PostConfig,
+    inject_cfg: InjectConfig,
+    model_correct: bool,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut rs = Resampler::new(rate, channels);
         let mut raw: Vec<i16> = Vec::new(); // 一次读出的原生交错样本
         let mut resampled: Vec<i16> = Vec::new();
         let interval = Duration::from_millis(FEED_INTERVAL_MS);
+        let empty_segs: Vec<serde_json::Value> = vec![];
         loop {
             let window = Instant::now();
             // 一次最多取 ~0.5s 原生数据（积压时的上限；正常一个窗口约 40ms 的量）
@@ -388,9 +405,109 @@ fn spawn_feeder(
                 bytes.extend_from_slice(&s.to_le_bytes());
             }
             let pcm_b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-            if let Err(e) = bridge.call("asr_feed", serde_json::json!({ "pcm_b64": pcm_b64 })) {
-                eprintln!("[voice] asr_feed 失败：{e}");
-                return; // 核没了：本次会话作废（编排层会感知到后续调用失败）
+
+            if streaming {
+                // 流式模式：asr_stream_feed，每段识别完立即下发并注入
+                match bridge.call(
+                    "asr_stream_feed",
+                    serde_json::json!({ "pcm_b64": pcm_b64 }),
+                ) {
+                    Ok(v) => {
+                        let segments =
+                            v.get("segments").and_then(|s| s.as_array()).unwrap_or(&empty_segs);
+                        for seg in segments {
+                            let index = seg
+                                .get("index")
+                                .and_then(|i| i.as_u64())
+                                .unwrap_or(0) as u32;
+                            let text = seg.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                            let _chars = seg.get("chars").and_then(|c| c.as_u64()).unwrap_or(0);
+                            let _seg_ms = seg.get("ms").and_then(|m| m.as_u64()).unwrap_or(0);
+
+                            // 推送段识别事件到前端（index / text / status）
+                            let _ = app.emit(
+                                "voice://stream/segment",
+                                serde_json::json!({
+                                    "index": index,
+                                    "text": text,
+                                    "status": "recognized",
+                                }),
+                            );
+
+                            // 后处理：幻觉/复读/填充词清理（ime-post，与 Python postprocess 等价）
+                            if let Some(cleaned) = ime_post::process(text, &post_cfg) {
+                                if !cleaned.is_empty() {
+                                    let mut final_text = cleaned.clone();
+                                    // 可选本地 LLM 纠错（G32 守卫在 Python correction.check 内）
+                                    if model_correct {
+                                        match bridge.call(
+                                            "correct",
+                                            serde_json::json!({ "text": &cleaned }),
+                                        ) {
+                                            Ok(v) => {
+                                                if v
+                                                    .get("applied")
+                                                    .and_then(|a| a.as_bool())
+                                                    .unwrap_or(false)
+                                                {
+                                                    if let Some(fixed) =
+                                                        v.get("text").and_then(|t| t.as_str())
+                                                    {
+                                                        if let Some(c) =
+                                                            ime_post::final_check(
+                                                                &ime_post::normalize(
+                                                                    fixed,
+                                                                    &post_cfg,
+                                                                ),
+                                                            )
+                                                        {
+                                                            final_text = c;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                eprintln!("[stream] correct 失败：{e}");
+                                            }
+                                        }
+                                    }
+
+                                    // 注入前校验焦点：快照仍在当前窗口才注入
+                                    let snap = snapshot_focus();
+                                    let res =
+                                        inject_ex(&final_text, snap.as_ref(), &inject_cfg);
+                                    let _ = app.emit(
+                                        "voice://stream/end",
+                                        serde_json::json!({
+                                            "index": index,
+                                            "status": if res.outcome
+                                                == InjectOutcome::Injected
+                                            {
+                                                "injected"
+                                            } else {
+                                                "failed"
+                                            },
+                                            "outcome": res.outcome.as_str(),
+                                        }),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[stream] asr_stream_feed 失败：{e}");
+                        return; // 核没了：本次会话作废
+                    }
+                }
+            } else {
+                // 非流式模式：asr_feed，松手后 asr_end 一次性解码
+                if let Err(e) = bridge.call(
+                    "asr_feed",
+                    serde_json::json!({ "pcm_b64": pcm_b64 }),
+                ) {
+                    eprintln!("[voice] asr_feed 失败：{e}");
+                    return; // 核没了：本次会话作废（编排层会感知到后续调用失败）
+                }
             }
             // 节流：窗口起点起算 40ms——IPC 快慢只影响批大小，不影响节奏
             let spent = window.elapsed();
@@ -555,6 +672,8 @@ pub struct VoiceSettings {
     pub model_correct: bool,
     /// 常驻麦克风：用户显式开启才跨会话保留设备流；默认 false。
     pub resident_mic: bool,
+    /// 流式输出（句内分段预览）：开启后每段识别完立即注入光标处，默认 false。
+    pub streaming_enabled: bool,
     /// 浮窗主题（dark | light）：会话开始经 `voice://theme` 广播给浮窗页
     pub theme: String,
 }
@@ -651,7 +770,13 @@ impl VoiceSettings {
             .and_then(|s| s.get("resident_mic"))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        Self { vks: key.vks().to_vec(), inject_cfg, post_cfg, model_correct, resident_mic, theme }
+        // 流式输出（句内分段预览）：开启后每段识别完立即注入光标处，默认 false。
+        let streaming_enabled = settings
+            .as_ref()
+            .and_then(|s| s.get("streaming_enabled"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        Self { vks: key.vks().to_vec(), inject_cfg, post_cfg, model_correct, resident_mic, streaming_enabled, theme }
     }
 }
 
@@ -696,7 +821,7 @@ pub fn run(
     }
     loop {
         // 每次会话开始取一次设置：热更在会话边界生效
-        let (vks, inject_cfg, post_cfg, model_correct, theme, resident_mic) = {
+        let (vks, inject_cfg, post_cfg, model_correct, theme, resident_mic, streaming_enabled) = {
             let s = cfg.lock().unwrap();
             (
                 s.vks.clone(),
@@ -705,7 +830,13 @@ pub fn run(
                 s.model_correct,
                 s.theme.clone(),
                 s.resident_mic,
+                s.streaming_enabled,
             )
+        };
+        let cancel_method = if streaming_enabled {
+            "asr_stream_cancel"
+        } else {
+            "asr_cancel"
         };
         // 设置热更：从常驻切到按需 → 释放设备；从按需切到常驻 → 补开流。
         // 会话边界做，不会打断正在进行的录音。
@@ -735,8 +866,14 @@ pub fn run(
             let _ = app.emit("voice://theme", theme.as_str());
             let _ = w.show();
         }
-        if let Err(e) = bridge.call("asr_begin", serde_json::json!({})) {
-            eprintln!("[voice] asr_begin 失败：{e}");
+        // 流式模式用 asr_stream_begin，非流式用 asr_begin
+        let begin_method = if streaming_enabled {
+            "asr_stream_begin"
+        } else {
+            "asr_begin"
+        };
+        if let Err(e) = bridge.call(begin_method, serde_json::json!({})) {
+            eprintln!("[voice] {begin_method} 失败：{e}");
             if let Some(w) = app.get_webview_window("overlay") {
                 let _ = w.hide();
             }
@@ -759,13 +896,25 @@ pub fn run(
                     let _ = w.hide();
                 }
                 mic.disarm(); // 作废本次：关写入闸门，别让残留标志跨到下一次
-                let _ = bridge.call("asr_cancel", serde_json::json!({}));
+                let cancel_method = if streaming_enabled {
+                    "asr_stream_cancel"
+                } else {
+                    "asr_cancel"
+                };
+                let _ = bridge.call(cancel_method, serde_json::json!({}));
                 std::thread::sleep(Duration::from_millis(500));
                 continue;
             }
         }
         let _ = hook.drain_presses(); // combo_base（会话开始前的新按键不算组合）
-        mic.begin(&bridge, &app);
+        mic.begin(
+            &bridge,
+            &app,
+            streaming_enabled,
+            post_cfg.clone(),
+            inject_cfg.clone(),
+            model_correct,
+        );
         // 按住时长从**按下瞬间**算（含 150ms 观察窗），否则误触判定会少算这段
         let t0 = t_press;
 
@@ -828,130 +977,217 @@ pub fn run(
 
         if stats.cancelled {
             eprintln!("[voice] 已取消（Esc），本次不注入");
-            let _ = bridge.call("asr_cancel", serde_json::json!({}));
+            let _ = bridge.call(cancel_method, serde_json::json!({}));
             continue;
         }
         if stats.combo {
             eprintln!("[voice] 检测到组合键（Ctrl+其它键），已忽略本次");
-            let _ = bridge.call("asr_cancel", serde_json::json!({}));
+            let _ = bridge.call(cancel_method, serde_json::json!({}));
             continue;
         }
         if stats.too_short {
             eprintln!("[voice] 按住 {}ms < {MIN_HOLD_MS}ms，判定误触，丢弃", stats.hold_ms);
-            let _ = bridge.call("asr_cancel", serde_json::json!({}));
+            let _ = bridge.call(cancel_method, serde_json::json!({}));
             continue;
         }
         if stats.truncated {
             eprintln!("[voice] 超过 {MAX_SECONDS}s 上限，已截断");
         }
 
-        // 松手 → 裁剪 + 解码（原始文本，壳负责后处理）
-        let t_release = Instant::now();
-        let (raw, asr_ms) = match bridge.call("asr_end", serde_json::json!({})) {
-            Ok(v) => (
-                v.get("text")
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                v.get("ms").and_then(|m| m.as_u64()).unwrap_or(0),
-            ),
-            Err(e) => {
-                eprintln!("[voice] asr_end 失败：{e}");
-                continue;
-            }
-        };
-        let t_asr_end = t_release.elapsed();
-        if raw.is_empty() {
-            eprintln!(
-                "[voice] 空结果不注入：hold={}ms 松手→asr_end={}ms",
-                stats.hold_ms, t_asr_end.as_millis()
-            );
-            continue; // 空结果不注入（硬约束）
-        }
-
-        // 后处理：幻觉/复读/填充词清理/归一（ime-post，与 Python postprocess 等价）
-        let t_post0 = Instant::now();
-        let mut cleaned = match ime_post::process(&raw, &post_cfg) {
-            Some(c) => c,
-            None => {
-                eprintln!("[voice] 后处理判为不注入（空/幻觉/纯语气词），len={}", raw.chars().count());
-                continue;
-            }
-        };
-        let t_post = t_post0.elapsed();
-
-        // 本地 LLM 纠错（可选，+0.5–1.5s；G32 守卫在 Python correction.check 内，
-        // applied=false 即拒绝——壳只在 applied=true 时采用修正文本）
-        let cleaned_stage = cleaned.clone(); // 三级对照的中间级（纠错前）
-        let mut fixes: u64 = 0;
-        let mut ms_correct = Duration::ZERO;
-        if model_correct {
-            let t_c0 = Instant::now();
-            match bridge.call("correct", serde_json::json!({ "text": &cleaned })) {
+        // 松手 → 流式用 asr_stream_end 收尾，非流式用 asr_end 一次性解码
+        if streaming_enabled {
+            // 流式：片段已在 spawn_feeder 内逐段后处理+注入，stream_end 只收尾
+            let _t_release = Instant::now();
+            match bridge.call("asr_stream_end", serde_json::json!({})) {
                 Ok(v) => {
-                    if v.get("applied").and_then(|a| a.as_bool()).unwrap_or(false) {
-                        let fixed = v.get("text").and_then(|t| t.as_str()).unwrap_or("");
-                        fixes = v.get("fixes").and_then(|f| f.as_u64()).unwrap_or(0);
-                        // 与 Python pipeline 同序：修正文本重新 normalize + final_check
-                        match ime_post::final_check(&ime_post::normalize(fixed, &post_cfg)) {
-                            Some(c) => cleaned = c,
-                            None => {
-                                eprintln!("[voice] 纠错后文本为空，不注入（len={})", raw.chars().count());
-                                continue;
+                    let empty_segs: Vec<serde_json::Value> = vec![];
+                    let segments = v
+                        .get("segments")
+                        .and_then(|s| s.as_array())
+                        .unwrap_or(&empty_segs);
+                    for seg in segments {
+                        let index = seg
+                            .get("index")
+                            .and_then(|i| i.as_u64())
+                            .unwrap_or(0) as u32;
+                        let text = seg.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                        let chars = seg.get("chars").and_then(|c| c.as_u64()).unwrap_or(0);
+                        let seg_ms = seg.get("ms").and_then(|m| m.as_u64()).unwrap_or(0);
+                        if !text.is_empty() {
+                            // 最后一段也要后处理+注入（spawn_feeder 只处理 feed 时产生的段）
+                            if let Some(cleaned) = ime_post::process(text, &post_cfg) {
+                                if !cleaned.is_empty() {
+                                    let mut final_text = cleaned.clone();
+                                    if model_correct {
+                                        match bridge.call(
+                                            "correct",
+                                            serde_json::json!({ "text": &cleaned }),
+                                        ) {
+                                            Ok(v) => {
+                                                if v
+                                                    .get("applied")
+                                                    .and_then(|a| a.as_bool())
+                                                    .unwrap_or(false)
+                                                {
+                                                    if let Some(fixed) =
+                                                        v.get("text").and_then(|t| t.as_str())
+                                                    {
+                                                        if let Some(c) =
+                                                            ime_post::final_check(
+                                                                &ime_post::normalize(
+                                                                    fixed,
+                                                                    &post_cfg,
+                                                                ),
+                                                            )
+                                                        {
+                                                            final_text = c;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                eprintln!("[stream_end] correct 失败：{e}");
+                                            }
+                                        }
+                                    }
+                                    let snap = snapshot_focus();
+                                    let res =
+                                        inject_ex(&final_text, snap.as_ref(), &inject_cfg);
+                                    let _ = app.emit(
+                                        "voice://stream/end",
+                                        serde_json::json!({
+                                            "index": index,
+                                            "status": if res.outcome
+                                                == InjectOutcome::Injected
+                                            {
+                                                "injected"
+                                            } else {
+                                                "failed"
+                                            },
+                                            "outcome": res.outcome.as_str(),
+                                        }),
+                                    );
+                                }
+                            }
+                        }
+                        let _ = index;
+                        let _ = chars;
+                        let _ = seg_ms;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[voice] asr_stream_end 失败：{e}");
+                }
+            }
+        } else {
+            // 非流式：asr_end 一次性解码，壳负责后处理+注入
+            let t_release = Instant::now();
+            let (raw, asr_ms) = match bridge.call("asr_end", serde_json::json!({})) {
+                Ok(v) => (
+                    v.get("text")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    v.get("ms").and_then(|m| m.as_u64()).unwrap_or(0),
+                ),
+                Err(e) => {
+                    eprintln!("[voice] asr_end 失败：{e}");
+                    continue;
+                }
+            };
+            let t_asr_end = t_release.elapsed();
+            if raw.is_empty() {
+                eprintln!(
+                    "[voice] 空结果不注入：hold={}ms 松手→asr_end={}ms",
+                    stats.hold_ms, t_asr_end.as_millis()
+                );
+                continue; // 空结果不注入（硬约束）
+            }
+
+            // 后处理：幻觉/复读/填充词清理/归一（ime-post，与 Python postprocess 等价）
+            let t_post0 = Instant::now();
+            let mut cleaned = match ime_post::process(&raw, &post_cfg) {
+                Some(c) => c,
+                None => {
+                    eprintln!("[voice] 后处理判为不注入（空/幻觉/纯语气词），len={}", raw.chars().count());
+                    continue;
+                }
+            };
+            let t_post = t_post0.elapsed();
+
+            // 本地 LLM 纠错（可选，+0.5–1.5s；G32 守卫在 Python correction.check 内，
+            // applied=false 即拒绝——壳只在 applied=true 时采用修正文本）
+            let cleaned_stage = cleaned.clone(); // 三级对照的中间级（纠错前）
+            let mut fixes: u64 = 0;
+            let mut ms_correct = Duration::ZERO;
+            if model_correct {
+                let t_c0 = Instant::now();
+                match bridge.call("correct", serde_json::json!({ "text": &cleaned })) {
+                    Ok(v) => {
+                        if v.get("applied").and_then(|a| a.as_bool()).unwrap_or(false) {
+                            let fixed = v.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                            fixes = v.get("fixes").and_then(|f| f.as_u64()).unwrap_or(0);
+                            // 与 Python pipeline 同序：修正文本重新 normalize + final_check
+                            match ime_post::final_check(&ime_post::normalize(fixed, &post_cfg)) {
+                                Some(c) => cleaned = c,
+                                None => {
+                                    eprintln!("[voice] 纠错后文本为空，不注入（len={})", raw.chars().count());
+                                    continue;
+                                }
                             }
                         }
                     }
+                    Err(e) => eprintln!("[voice] ⚠ correct 调用失败，按原文注入：{e}"),
                 }
-                Err(e) => eprintln!("[voice] ⚠ correct 调用失败，按原文注入：{e}"),
+                ms_correct = t_c0.elapsed();
             }
-            ms_correct = t_c0.elapsed();
-        }
 
-        // 注入（策略/焦点恢复/剪贴板恢复时延来自用户设置，settings 边界已解析）
-        let t_inj0 = Instant::now();
-        let res = inject_ex(&cleaned, snap.as_ref(), &inject_cfg);
-        let t_inj = t_inj0.elapsed();
-        // G7 反馈链：提权（管理员）目标 SendInput 无效且必须显式失败——
-        // 光落日志用户看不到「为什么没打上字」，发事件给前端弹提示。
-        if res.outcome == InjectOutcome::ElevatedTarget {
-            let _ = app.emit("voice://elevated", ());
-        }
-        let injected = res.outcome == InjectOutcome::Injected;
-        eprintln!(
-            "[voice] 会话完成：hold={}ms 松手→asr_end={}ms 后处理={}ms 纠错={}ms 注入={}ms \
-             松手→完成={}ms chars={} fixes={} outcome={} strategy={}",
-            stats.hold_ms,
-            t_asr_end.as_millis(),
-            t_post.as_millis(),
-            ms_correct.as_millis(),
-            t_inj.as_millis(),
-            t_release.elapsed().as_millis(),
-            cleaned.chars().count(),
-            fixes,
-            res.outcome.as_str(),
-            res.strategy
-        );
+            // 注入（策略/焦点恢复/剪贴板恢复时延来自用户设置，settings 边界已解析）
+            let t_inj0 = Instant::now();
+            let res = inject_ex(&cleaned, snap.as_ref(), &inject_cfg);
+            let t_inj = t_inj0.elapsed();
+            // G7 反馈链：提权（管理员）目标 SendInput 无效且必须显式失败——
+            // 光落日志用户看不到「为什么没打上字」，发事件给前端弹提示。
+            if res.outcome == InjectOutcome::ElevatedTarget {
+                let _ = app.emit("voice://elevated", ());
+            }
+            let injected = res.outcome == InjectOutcome::Injected;
+            eprintln!(
+                "[voice] 会话完成：hold={}ms 松手→asr_end={}ms 后处理={}ms 纠错={}ms 注入={}ms \
+                 松手→完成={}ms chars={} fixes={} outcome={} strategy={}",
+                stats.hold_ms,
+                t_asr_end.as_millis(),
+                t_post.as_millis(),
+                ms_correct.as_millis(),
+                t_inj.as_millis(),
+                t_release.elapsed().as_millis(),
+                cleaned.chars().count(),
+                fixes,
+                res.outcome.as_str(),
+                res.strategy
+            );
 
-        // 记账：写一条历史（store_text 开关在 Python add_history 内生效；
-        // 记账失败只落 id=-1，绝不影响已完成的注入）
-        let _ = bridge.call(
-            "session_record",
-            serde_json::json!({
-                "outcome": if injected { "Injected" } else { "Failed" },
-                "chars": cleaned.chars().count(),
-                "e2e_ms": t_release.elapsed().as_millis() as u64,
-                "ms_asr": asr_ms,
-                "ms_post": (t_post + ms_correct).as_millis() as u64,
-                "ms_inject": t_inj.as_millis() as u64,
-                "speech_ms": stats.hold_ms as u64,
-                "strategy": res.strategy,
-                "fixes": fixes,
-                "error": if injected { "" } else { res.outcome.as_str() },
-                "text": &cleaned,
-                "raw_text": &raw,
-                "clean_text": &cleaned_stage,
-            }),
-        );
+            // 记账：写一条历史（store_text 开关在 Python add_history 内生效；
+            // 记账失败只落 id=-1，绝不影响已完成的注入）
+            let _ = bridge.call(
+                "session_record",
+                serde_json::json!({
+                    "outcome": if injected { "Injected" } else { "Failed" },
+                    "chars": cleaned.chars().count(),
+                    "e2e_ms": t_release.elapsed().as_millis() as u64,
+                    "ms_asr": asr_ms,
+                    "ms_post": (t_post + ms_correct).as_millis() as u64,
+                    "ms_inject": t_inj.as_millis() as u64,
+                    "speech_ms": stats.hold_ms as u64,
+                    "strategy": res.strategy,
+                    "fixes": fixes,
+                    "error": if injected { "" } else { res.outcome.as_str() },
+                    "text": &cleaned,
+                    "raw_text": &raw,
+                    "clean_text": &cleaned_stage,
+                }),
+            );
+        }
     }
 }
 
@@ -1050,3 +1286,8 @@ mod tests {
         assert_eq!(ring.dropped_count(), 0);
     }
 }
+
+
+
+
+

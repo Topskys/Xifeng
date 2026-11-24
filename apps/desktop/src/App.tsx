@@ -1,4 +1,4 @@
-import { BarChart3, Info, Mic, Moon, Package, Radio, Settings, Sun } from "lucide-react"
+import { BarChart3, Info, Mic, Moon, Package, Settings, Sun } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 
 import { api, type Bootstrap } from "@/api"
@@ -9,14 +9,12 @@ import { ConfigPage } from "@/pages/Config"
 import { ModelsPage } from "@/pages/Models"
 import { OverlayPage } from "@/pages/Overlay"
 import { StatsPage } from "@/pages/Stats"
-import { StreamingPage } from "@/pages/Streaming"
 import { Button } from "@/components/ui/button"
 
-export type PageKey = "stats" | "models" | "streaming" | "config" | "about"
+export type PageKey = "stats" | "models" | "config" | "about"
 
 const NAV: { key: PageKey; label: string; icon: typeof BarChart3 }[] = [
   { key: "stats", label: "统计", icon: BarChart3 },
-  { key: "streaming", label: "流式", icon: Radio },
   { key: "models", label: "模型", icon: Package },
   { key: "config", label: "配置", icon: Settings },
   { key: "about", label: "关于", icon: Info },
@@ -27,7 +25,7 @@ export interface Toast {
   ok?: boolean
 }
 
-const PAGE_KEYS = ["stats", "streaming", "models", "config", "about"]
+const PAGE_KEYS = ["stats", "models", "config", "about"]
 
 function pageFromHash(): PageKey {
   const h = location.hash.replace("#", "")
@@ -208,7 +206,6 @@ function MainShell() {
       {/* 内容 */}
       <main className="min-w-0 flex-1 overflow-y-auto">
         {page === "stats" && <StatsPage showToast={showToast} />}
-        {page === "streaming" && <StreamingPage />}
         {page === "models" && <ModelsPage boot={boot} showToast={showToast} refreshBoot={setBoot} />}
         {page === "config" && (
           <ConfigPage boot={boot} showToast={showToast} refreshBoot={setBoot} applyTheme={applyTheme} />

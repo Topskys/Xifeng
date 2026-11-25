@@ -259,8 +259,8 @@ export function ModelsPage({
                     size="sm"
                     variant="outline"
                     onClick={handleDownload}
-                    disabled={downloading}
-                    title="下载模型"
+                    disabled={downloading || m.ready}
+                    title={m.ready ? "模型已就绪" : "下载模型"}
                   >
                     {downloading ? <Loader2 className="animate-spin size-4" /> : <Download className="size-4" />}
                   </Button>
@@ -270,8 +270,14 @@ export function ModelsPage({
                     设为当前
                   </Button>
                 )}
-                <Button size="sm" variant="outline" title="打开目录" onClick={() => api.open(m.path)} disabled={downloading}>
-                  <FolderOpen /> 
+                <Button
+                  size="sm"
+                  variant="outline"
+                  title={m.ready ? "打开目录" : "模型未就绪"}
+                  onClick={() => api.open(m.path)}
+                  disabled={!m.ready}
+                >
+                  <FolderOpen />
                 </Button>
               </div>
             </Card>

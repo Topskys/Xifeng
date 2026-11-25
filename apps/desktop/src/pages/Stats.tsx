@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, type DailyPoint, type StatsPayload } from "@/api";
+import { PageHeader } from "@/components/page";
 import { HistorySection } from "@/pages/History";
 import { Card } from "@/components/ui/card";
+import type { ToastFn } from "@/lib/page-props";
 
 const PERIODS = [
   { label: "今天", value: "today" },
@@ -21,30 +23,10 @@ function fmtMs(ms: number) {
   return ms > 0 ? (ms / 1000).toFixed(2) : "—";
 }
 
-export function PageHeader({
-  title,
-  desc,
-  children,
-}: {
-  title: string;
-  desc?: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="mb-5 flex items-end justify-between">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-        {desc && <p className="mt-1 text-xs text-muted-foreground">{desc}</p>}
-      </div>
-      <div className="flex items-center gap-2">{children}</div>
-    </div>
-  );
-}
-
 export function StatsPage({
   showToast,
 }: {
-  showToast: (t: string, ok?: boolean) => void;
+  showToast: ToastFn;
 }) {
   const [period, setPeriod] = useState("today");
   const [data, setData] = useState<StatsPayload | null>(null);

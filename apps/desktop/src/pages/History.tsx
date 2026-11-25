@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { ToastFn } from "@/lib/page-props";
 
 const PAGE_SIZE = 50;
 
@@ -26,7 +27,7 @@ export function HistorySection({
   showToast,
   period,
 }: {
-  showToast: (t: string, ok?: boolean) => void;
+  showToast: ToastFn;
   period: string;
 }) {
   const [rows, setRows] = useState<HistoryRow[]>([]);

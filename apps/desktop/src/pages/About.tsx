@@ -2,17 +2,18 @@ import { ExternalLink, Mic, RefreshCw } from "lucide-react"
 import { useState } from "react"
 
 import { api, type Bootstrap } from "@/api"
+import { PageHeader } from "@/components/page"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { PageHeader } from "@/pages/Stats"
+import type { ToastFn } from "@/lib/page-props"
 
 export function AboutPage({
   boot,
   showToast,
 }: {
   boot: Bootstrap
-  showToast: (text: string, ok?: boolean) => void
+  showToast: ToastFn
 }) {
   const [checking, setChecking] = useState(false)
 

@@ -1,19 +1,15 @@
 import { FolderOpen, Plus, Download, Loader2, X } from "lucide-react";
 import { useRef, useState } from "react";
 
-import { api, type Bootstrap } from "@/api";
+import { api } from "@/api";
 import type { ModelInfo } from "@/api/types";
+import { PageHeader, SectionLabel } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { PageHeader } from "@/pages/Stats";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-function fmtSize(n: number) {
-  if (n <= 0) return "0 MB";
-  return n >= 1024 ** 3
-    ? `${(n / 1024 ** 3).toFixed(1)} GB`
-    : `${(n / 1024 ** 2).toFixed(0)} MB`;
-}
+import { useReloadBoot } from "@/hooks/useReloadBoot";
+import { fmtSize } from "@/lib/format";
+import type { PageProps } from "@/lib/page-props";
 
 /** 模型分类：ASR（语音识别） / llm（文本润色）。 */
 function modelKind(m: ModelInfo): "ASR" | "llm" {
@@ -48,11 +44,7 @@ export function ModelsPage({
   boot,
   showToast,
   refreshBoot,
-}: {
-  boot: Bootstrap;
-  showToast: (text: string, ok?: boolean) => void;
-  refreshBoot: (b: Bootstrap) => void;
-}) {
+}: PageProps) {
   const { models } = boot;
   const asrModels = models.list.filter((m) => modelKind(m) === "ASR");
   const llmModels = models.list.filter((m) => modelKind(m) === "llm");
@@ -70,11 +62,7 @@ export function ModelsPage({
     }
   };
 
-  const refresh = () =>
-    api
-      .bootstrap()
-      .then(refreshBoot)
-      .catch(() => {});
+  const reload = useReloadBoot(refreshBoot);
 
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -131,7 +119,7 @@ export function ModelsPage({
             setDownloadJobId(null);
             jobRef.current = null;
             showToast(`下载完成：${s.result?.path} (${fmtSize(s.result?.size || 0)})`);
-            refresh();
+            void reload();
           } else if (s.status === "failed") {
             stopPolling();
             setDownloading(false);
@@ -166,7 +154,7 @@ export function ModelsPage({
   const switchModel = async (path: string) => {
     try {
       await api.useModel(path);
-      refresh();
+      await reload();
       showToast("已切换模型 · 下次说话生效");
     } catch (e) {
       showToast(String(e), false);
@@ -194,9 +182,7 @@ export function ModelsPage({
       </PageHeader>
 
       {/* 当前使用（紧凑） */}
-      <div className="mb-1 mt-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
-        当前使用
-      </div>
+      <SectionLabel>当前使用</SectionLabel>
       <Card className="mt-2 px-4 py-3">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
@@ -235,9 +221,7 @@ export function ModelsPage({
       </Card>
 
       {/* 全部模型 */}
-      <div className="mt-5 mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
-        模型列表
-      </div>
+      <SectionLabel className="mt-5">模型列表</SectionLabel>
       {models.list.length === 0 ? (
         <Card className="p-5">
           <div className="text-sm text-muted-foreground">未找到可用模型</div>

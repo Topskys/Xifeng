@@ -2,6 +2,9 @@ import { BarChart3, Info, Mic, Moon, Package, Settings, Sun } from "lucide-react
 import { useCallback, useEffect, useState } from "react"
 
 import { api, type Bootstrap } from "@/api"
+import { ToastView } from "@/components/toast"
+import { useToast } from "@/hooks/useToast"
+import { applyTheme } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import { WindowTopBar } from "@/components/title-bar"
 import { AboutPage } from "@/pages/About"
@@ -19,11 +22,6 @@ const NAV: { key: PageKey; label: string; icon: typeof BarChart3 }[] = [
   { key: "config", label: "配置", icon: Settings },
   { key: "about", label: "关于", icon: Info },
 ]
-
-export interface Toast {
-  text: string
-  ok?: boolean
-}
 
 const PAGE_KEYS = ["stats", "models", "config", "about"]
 
@@ -61,7 +59,7 @@ export default function App() {
 function MainShell() {
   const [boot, setBoot] = useState<Bootstrap | null>(null)
   const [page, setPage] = useState<PageKey>(pageFromHash)
-  const [toast, setToast] = useState<Toast | null>(null)
+  const { toast, showToast } = useToast()
 
   const setPageHash = useCallback((key: PageKey) => {
     setPage(key)
@@ -74,25 +72,12 @@ function MainShell() {
     return () => window.removeEventListener("hashchange", onHash)
   }, [])
 
-  const showToast = useCallback((text: string, ok = true) => {
-    setToast({ text, ok })
-    window.setTimeout(() => setToast(null), 3500)
-  }, [])
-
-  const applyTheme = useCallback((theme: string) => {
-    const dark = theme !== "light"
-    document.documentElement.classList.toggle("dark", dark)
-    // Edge 应用窗口的标题栏颜色跟随主题
-    document.querySelector('meta[name="theme-color"]')
-      ?.setAttribute("content", dark ? "#0a0a0b" : "#ffffff")
-  }, [])
-
   useEffect(() => {
     api.bootstrap().then((b) => {
       applyTheme(b.settings.theme)
       setBoot(b)
     }).catch((e) => showToast(String(e), false))
-  }, [applyTheme, showToast])
+  }, [showToast])
 
   // G7 反馈链：注入落在提权（管理员）窗口时 SendInput 无效，壳发事件——
   // 这里弹提示让用户知道原因，而不是静默丢字。
@@ -135,7 +120,7 @@ function MainShell() {
     applyTheme(s.theme)
     setBoot({ ...boot, settings: s })
     showToast(next === "dark" ? "已切换到深色" : "已切换到浅色")
-  }, [boot, applyTheme, showToast])
+  }, [boot, showToast])
 
   if (!boot) {
     return (
@@ -208,24 +193,14 @@ function MainShell() {
         {page === "stats" && <StatsPage showToast={showToast} />}
         {page === "models" && <ModelsPage boot={boot} showToast={showToast} refreshBoot={setBoot} />}
         {page === "config" && (
-          <ConfigPage boot={boot} showToast={showToast} refreshBoot={setBoot} applyTheme={applyTheme} />
+          <ConfigPage boot={boot} showToast={showToast} refreshBoot={setBoot} />
         )}
         {page === "about" && <AboutPage boot={boot} showToast={showToast} />}
       </main>
       </div>
 
       {/* toast */}
-      {toast && (
-        <div
-          className={cn(
-            "fixed right-5 bottom-5 z-50 flex items-center gap-2 rounded-lg border border-border bg-popover px-4 py-2.5 text-sm shadow-lg",
-            toast.ok ? "text-foreground" : "text-destructive",
-          )}
-        >
-          <span className={cn("size-2 rounded-full", toast.ok ? "bg-success" : "bg-destructive")} />
-          {toast.text}
-        </div>
-      )}
+      <ToastView toast={toast} />
     </div>
   )
 }

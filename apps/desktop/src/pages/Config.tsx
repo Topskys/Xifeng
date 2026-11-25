@@ -1,41 +1,15 @@
 import { FolderOpen, Trash2 } from "lucide-react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { api, HOTKEY_LABEL, LANGUAGE_LABEL, type Bootstrap, type Settings } from "@/api"
+import { Group, PageHeader, Row } from "@/components/page"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { SimpleSelect } from "@/components/simple-select"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
-import { PageHeader } from "@/pages/Stats"
-
-export function Row({
-  title,
-  desc,
-  children,
-}: {
-  title: string
-  desc?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 py-3.5">
-      <div className="min-w-0">
-        <div className="text-sm font-medium">{title}</div>
-        {desc && <div className="mt-1 text-xs text-muted-foreground">{desc}</div>}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  )
-}
-
-export function Group({ children }: { children: React.ReactNode }) {
-  return (
-    <Card className="rounded-xl border-border px-5 py-1.5 mt-3">
-      <div className="divide-y divide-border/60">{children}</div>
-    </Card>
-  )
-}
+import { useDebouncedSave } from "@/hooks/useDebouncedSave"
+import type { ToastFn } from "@/lib/page-props"
+import { applyTheme } from "@/lib/theme"
 
 function Segmented({
   options,
@@ -73,28 +47,14 @@ export function ConfigPage({
   boot,
   showToast,
   refreshBoot,
-  applyTheme,
 }: {
   boot: Bootstrap
-  showToast: (text: string, ok?: boolean) => void
+  showToast: ToastFn
   refreshBoot: (b: Bootstrap) => void
-  applyTheme: (theme: string) => void
 }) {
   const [s, setS] = useState<Settings>(boot.settings)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const latestRef = useRef(s)
 
   useEffect(() => setS(boot.settings), [boot.settings])
-  useEffect(() => {
-    latestRef.current = s
-  }, [s])
-
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    },
-    [],
-  )
 
   /** 自动保存：改完停手 400ms 写 config.json（滑杆拖动不会每帧写盘）。 */
   const persist = useCallback(
@@ -109,23 +69,24 @@ export function ConfigPage({
         showToast(String(e), false)
       }
     },
-    [boot, refreshBoot, applyTheme, showToast],
+    [boot, refreshBoot, showToast],
   )
+
+  const { schedule, cancel } = useDebouncedSave<Settings>(() => s, persist)
 
   const patch = useCallback(
     (p: Partial<Settings>) => {
       setS((prev) => ({ ...prev, ...p }))
       // 主题要立即反馈，不等防抖
       if (p.theme) applyTheme(p.theme)
-      if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => persist(latestRef.current), 400)
+      schedule()
     },
-    [applyTheme, persist],
+    [schedule],
   )
 
   const reset = async () => {
     if (!window.confirm("把设置恢复为默认值？")) return
-    if (timerRef.current) clearTimeout(timerRef.current)
+    cancel()
     const next = await api.resetSettings()
     setS(next)
     applyTheme(next.theme)

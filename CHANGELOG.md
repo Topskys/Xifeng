@@ -1,3 +1,24 @@
+## [0.3.0](https://github.com/Topskys/Xifeng/compare/v0.2.0...v0.3.0) (2026-11-25)
+
+### Features
+
+* **asr:** ITN 可配置并默认开启 ([2c03f62](https://github.com/Topskys/Xifeng/commit/2c03f620778844f70b30175a4f3c960a7c4a771f))
+* **config:** 模型列表与当前选择持久化到 config.json ([e400755](https://github.com/Topskys/Xifeng/commit/e400755ce2ccf396f8977b3d97ab6d718a67ab4b))
+* **correction:** 纠错历史+提示词+store_text+设置热更 ([8c7d80d](https://github.com/Topskys/Xifeng/commit/8c7d80db96a332a69965999ab24c38e67ed4fb0c))
+* **correction:** pipeline 接入纠错历史提供者 ([9586a82](https://github.com/Topskys/Xifeng/commit/9586a826e8e02ed3d8544bf7894b73dab04e1dad))
+* **mic:** 常驻麦克风改为可配置选项（默认关）+ 设置热更补齐 ([a2c5aee](https://github.com/Topskys/Xifeng/commit/a2c5aeee93216b18155bf22783a5237ea9fe84d2))
+* **model:** 模型下载 IPC+前端UI+测试 ([f664b5c](https://github.com/Topskys/Xifeng/commit/f664b5cfa877a4d9770553cd207f713bcae40964))
+* **stream:** 壳侧流式分段注入与事件推送 ([5b32ce1](https://github.com/Topskys/Xifeng/commit/5b32ce1f8eafd20435fa5cb02951e6f199759de2))
+* **stream:** 前端流式页与事件监听 ([e170df8](https://github.com/Topskys/Xifeng/commit/e170df8f177093a07532371141829c8c5ff3051c))
+* **ui:** 流式开关配置+品牌溪风+voice.rs pub+gitignore ([0c405af](https://github.com/Topskys/Xifeng/commit/0c405af13999818717db8dd1fa1dde0f0e8f289c))
+
+### Bug Fixes
+
+* **asr:** 容器字节当 PCM 喂会静默出垃圾，现在显式拒绝 ([af00a09](https://github.com/Topskys/Xifeng/commit/af00a09c4c991462b40d95050140043e43d577ef))
+* correction guard echo-fold 3-char stutter ([91f4983](https://github.com/Topskys/Xifeng/commit/91f498356b935f4631cab12120943565780338d4))
+* **install:** 安装目录名改回 Xifeng ([cb31369](https://github.com/Topskys/Xifeng/commit/cb3136967f0fc344a424f7bd727293a304784948))
+* **lint:** 修复 12 个 oxlint error（rules-of-hooks 等） ([05dd7b6](https://github.com/Topskys/Xifeng/commit/05dd7b69da959cf75764bf7ec7d2c196b6715033))
+* **ui:** 模型按钮按就绪状态禁用 ([b69471f](https://github.com/Topskys/Xifeng/commit/b69471f14f4bb85b2a4edb28be3233ce57e18f33))
 
 ## [0.2.0](https://github.com/Topskys/Xifeng/compare/v0.1.0...v0.2.0) (2026-11-18)
 

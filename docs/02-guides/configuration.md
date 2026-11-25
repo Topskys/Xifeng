@@ -15,11 +15,12 @@
   "language": "zh",
   "use_itn": "1",
   "resident_mic": "0",
-  "model_correct": "1",
+  "model_correct": "0",
   "correction_history_limit": "10",
   "correction_prompt": "项目名写作 Xifeng；技术术语保留英文原文。",
   "store_text": "1",
-  "schema_version": 1
+  "streaming_enabled": "1",
+  "schema_version": 2
 }
 ```
 
@@ -37,6 +38,7 @@
 | `correction_history_limit` | `10` | 最近成功注入文本的上下文轮数，允许 0–50；0 表示不带历史 |
 | `correction_prompt` | 空 | 用户自定义领域/风格要求，最长 2000 字；不新增界面编辑器 |
 | `store_text` | `1` | 关闭后只记录长度与结果，不保存三级文本，也不给纠错提供历史 |
+| `streaming_enabled` | `1` | **流式识别开关**：开启后每会话按 VAD 切段、逐段识别并逐段注入；默认关，下一次说话生效 |
 
 ### ITN 的取舍
 
@@ -86,18 +88,44 @@ PTT 默认的能量静音裁剪不依赖该模型。
 可手动下载到该位置；`core/fetch_llm.py` 的默认目录是旧开发布局，不能直接当作
 当前统一根的 GUI 下载实现。
 
-## 模型下载界面状态
+## 模型下载界面
 
-**开发中，尚未形成可交付闭环。** 当前工作区有 `models_download` 的 IPC/HTTP 草案与
-界面草案，但它还不能作为用户安装指导：镜像映射、冻结包脚本定位、进度/取消、
-状态恢复和专项测试尚待完成，并且当前只涉及 ASR，不代表 VAD/LLM 已支持一键下载。
+**已实现基础功能，但仍在开发中。** 当前已实现：
+- `models_download_start/status/cancel`：支持 HuggingFace 镜像、ModelScope、GitHub Release、本地源；后台异步下载、进度轮询、支持取消、断点续传、校验
+- `models_add`：选择本地目录自动扫描、写入 config.json 的 models.list 并自动保存
+- `models_find`：按目录名+文件清单在本机候选位置匹配模型目录
+
+仍在完善：镜像映射（当前仅 hf-mirror 可用，ModelScope 暂映射到 hf-mirror）、冻结包脚本定位、页面恢复后状态恢复、专项测试与安装版冒烟通过、VAD/LLM 下载支持。
 
 验收要求：真实 ModelScope/HuggingFace 源、正确统一根、断点续传、校验、明确失败、
 进度/取消、页面恢复后状态一致、sidecar 内可运行、专项测试与安装版冒烟通过。
 在此之前，安装文档以本页的手动准备步骤为准。
 
+## 流式识别
+
+**后端已实现，前端仅保留开关。**
+
+后端能力（Python `AsrRuntime` + IPC）：
+- `asr_stream_begin/feed/end/cancel` 四个方法完整实现
+- 按 `FEED_INTERVAL_MS=40ms` 批次喂送、累积 `STREAM_EVAL_EVERY_FRAMES=4000` 帧（≈250ms）触发 VAD 切分
+- VAD 切分后，对每个**已闭合**语音段复用 `prepare_pcm` + `asr.transcribe` 并逐段下发
+- `segments` 在 `asr_stream_feed` 的响应里同步返回；`on_segment` 回调供进程内调试
+- `asr_stream_end` 把未闭合尾音转写作为最后一片段
+- `asr_stream_cancel` 丢弃缓冲并关闭会话
+- 缓冲上限 60s（约 960000 帧），超出丢弃新数据并计一次警告日志
+
+前端现状：
+- 只在配置页保留 `streaming_enabled` 开关（`config.json` 的 `streaming_enabled`，默认开）
+- `Streaming.tsx` 页面已删除，不提供逐字预览 UI
+- `voice://stream/segment`、`voice://stream/end`、`voice://stream/cancelled` 事件照常发送，供未来扩展
+
+**行为差异：**
+- **逐段注入**：说话中途切窗口，后续段会跟着切注入目标（逐段重取焦点快照）
+- **分段独立**：后处理/纠错按段独立执行，跨段上下文纠错覆盖不到
+- **首段延迟**：≈ 说完停顿（VAD 尾点 240ms）+ 250ms 评估粒度 + 单段解码 ~350ms
+- **默认开启**：配置默认 `"streaming_enabled": "1"`，下一次说话生效
+
 ## 流式输出边界
 
-当前是**松开后整句识别、整句注入**，不是逐字流式上屏。SenseVoice 当前走 offline
-recognizer，不能把一次完整 decode 包装成“流式”。后续若增加中间预览，必须保持：
+SenseVoice 当前走 offline recognizer，不能把一次完整 decode 包装成"逐字流式"。后续若增加中间预览，必须保持：
 最终句仍经 postprocess、纠错守卫、焦点校验；不得反复向目标应用注入/删除未确认文本。

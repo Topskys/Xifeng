@@ -1,6 +1,6 @@
 [project]
 name = "xifeng-spike"
-version = "0.2.0"
+version = "0.3.0"
 description = "溪风：基于语音模型本地推理的语音输入法（ASR 运行时）"
 requires-python = ">=3.11,<3.13"
 dependencies = [

@@ -19,14 +19,14 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "ime-post"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "regex",
 ]
 
 [[package]]
 name = "ime-py"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ime-post",
  "ime-vad",
@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "ime-vad"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "libc"

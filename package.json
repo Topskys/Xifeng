@@ -1,7 +1,7 @@
 {
   "name": "xifeng",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "溪风一款基于语音模型本地推理的语音输入法",
   "scripts": {
     "dev": "pnpm --filter @xifeng/desktop dev",

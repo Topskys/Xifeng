@@ -1,5 +1,5 @@
 import { FolderOpen, Trash2 } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { api, HOTKEY_LABEL, LANGUAGE_LABEL, type Bootstrap, type Settings } from "@/api"
 import { Button } from "@/components/ui/button"
@@ -81,35 +81,55 @@ export function ConfigPage({
   applyTheme: (theme: string) => void
 }) {
   const [s, setS] = useState<Settings>(boot.settings)
-  const [dirty, setDirty] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const latestRef = useRef(s)
 
   useEffect(() => setS(boot.settings), [boot.settings])
+  useEffect(() => {
+    latestRef.current = s
+  }, [s])
 
-  const patch = useCallback((p: Partial<Settings>) => {
-    setS((prev) => ({ ...prev, ...p }))
-    setDirty(true)
-  }, [])
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    },
+    [],
+  )
 
-  const save = async () => {
-    try {
-      const next = await api.saveSettings(s)
-      const themeChanged = next.theme !== boot.settings.theme
-      refreshBoot({ ...boot, settings: next })
-      if (themeChanged) applyTheme(next.theme)
-      setDirty(false)
-      showToast(themeChanged ? "已保存 · 主题已切换" : "已保存 · 下次说话生效")
-    } catch (e) {
-      showToast(String(e), false)
-    }
-  }
+  /** 自动保存：改完停手 400ms 写 config.json（滑杆拖动不会每帧写盘）。 */
+  const persist = useCallback(
+    async (next: Settings) => {
+      try {
+        const saved = await api.saveSettings(next)
+        const themeChanged = saved.theme !== boot.settings.theme
+        refreshBoot({ ...boot, settings: saved })
+        if (themeChanged) applyTheme(saved.theme)
+        showToast("已自动保存 · 下次说话生效")
+      } catch (e) {
+        showToast(String(e), false)
+      }
+    },
+    [boot, refreshBoot, applyTheme, showToast],
+  )
+
+  const patch = useCallback(
+    (p: Partial<Settings>) => {
+      setS((prev) => ({ ...prev, ...p }))
+      // 主题要立即反馈，不等防抖
+      if (p.theme) applyTheme(p.theme)
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => persist(latestRef.current), 400)
+    },
+    [applyTheme, persist],
+  )
 
   const reset = async () => {
     if (!window.confirm("把设置恢复为默认值？")) return
+    if (timerRef.current) clearTimeout(timerRef.current)
     const next = await api.resetSettings()
     setS(next)
     applyTheme(next.theme)
     refreshBoot({ ...boot, settings: next })
-    setDirty(false)
     showToast("已恢复默认值 · 下次说话生效")
   }
 
@@ -119,21 +139,17 @@ export function ConfigPage({
         <Button size="sm" variant="outline" onClick={reset}>
           恢复默认
         </Button>
-        <Button size="sm" variant="default" onClick={save} className={dirty ? "" : "opacity-70"}>
-          保存
-        </Button>
       </PageHeader>
-
       <div>
         <Group>
-          <Row title="触发热键" desc="左右互斥，（默认右 Ctrl）">
+          <Row title="触发热键" desc="左右互斥">
             <SimpleSelect
               options={sel(HOTKEY_LABEL)}
               value={s.hotkey}
               onValueChange={(v) => patch({ hotkey: v })}
             />
           </Row>
-          <Row title="录音段切分" desc="对录音做 VAD 双阈值切分与无效段过滤">
+          <Row title="录音切分" desc="对录音做 VAD 双阈值切分与无效段过滤">
             <Segmented
               options={[
                 { label: "关闭", value: "ptt" },
@@ -166,8 +182,8 @@ export function ConfigPage({
             <Switch checked={s.show_popup} onCheckedChange={(v) => patch({ show_popup: v })} />
           </Row>
           <Row
-            title="流式输出（句内分段预览）"
-            desc="长语音按住说话时，每段识别完立即注入光标处，默认关闭（句级输出）"
+            title="流式输出"
+            desc="长语音按住说话时，每段识别完立即注入光标处，默认关闭"
           >
             <Switch
               checked={s.streaming_enabled}
@@ -176,7 +192,7 @@ export function ConfigPage({
           </Row>
           <Row
             title="识别语言"
-            desc="语音转文字的目标语言，切换后模型重载（约几秒），保存即生效"
+            desc="语音转文字的目标语言"
           >
             <SimpleSelect
               options={sel(LANGUAGE_LABEL)}
@@ -321,7 +337,7 @@ export function ConfigPage({
           </Row>
           <Row
             title="配置文件"
-            desc={`设置存成 JSON，可直接编辑：${boot.configPath}`}
+            desc={boot.configPath}
           >
             <Button size="sm" variant="outline" onClick={() => api.open("__config__")}>
               <FolderOpen /> 打开

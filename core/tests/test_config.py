@@ -170,3 +170,30 @@ def test_metadata_keys_are_not_treated_as_settings():
     assert cfg.language == "en"
     # 元数据不该被当成用户设置项回写
     assert "migrated_from" not in user_settings.to_raw(cfg)
+
+
+def test_models_block_survives_settings_save():
+    """设置保存是合并写：不能把界面维护的 models 块抹掉。"""
+    config.save_models(
+        {
+            "current": {"asr": "A", "llm": "B"},
+            "list": [{"path": "A", "name": "a", "kind": "ASR"}],
+        }
+    )
+    user_settings.save(None, user_settings.update(user_settings.DEFAULTS, theme="light"))
+
+    models = config.load_models()
+    assert models["current"] == {"asr": "A", "llm": "B"}
+    assert models["list"][0]["path"] == "A"
+    raw, _ = config.load_raw()
+    assert raw["schema_version"] == 2
+    # v1 的顶层 model_dir 不再写回
+    assert "model_dir" not in raw
+    assert "llm_model_dir" not in raw
+
+
+def test_legacy_model_dir_key_is_dropped_on_save():
+    config.save_raw({"model_dir": "C:/old/asr", "llm_model_dir": "C:/old/llm"})
+    raw, _ = config.load_raw()
+    assert "model_dir" not in raw and "llm_model_dir" not in raw
+

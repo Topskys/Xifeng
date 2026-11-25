@@ -42,6 +42,8 @@ export interface Settings {
 export interface ModelInfo {
   path: string
   name: string
+  /** 模型用途：ASR（语音识别）/ llm（文本润色） */
+  kind?: "ASR" | "llm"
   quant: string
   size: number
   ready: boolean
@@ -112,7 +114,11 @@ export interface Bootstrap {
   /** 外置配置文件路径（`%LOCALAPPDATA%\Xifeng\config.json`），用户可直接编辑 */
   configPath: string
   settings: Settings
-  models: { current: string; list: ModelInfo[] }
+  models: {
+    /** 当前选择：ASR 目录 / LLM gguf 文件（空串表示未选） */
+    current: { asr: string; llm: string }
+    list: ModelInfo[]
+  }
   correction: { available: boolean; name: string; sizeMB: number; dir: string }
   autostart: boolean
 }

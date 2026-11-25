@@ -93,6 +93,11 @@ export const api = {
   setTheme: (theme: string) => call<Settings>("/api/theme", { theme }),
   modelsFind: (name: string, files: string[]) =>
     call<{ matches: string[] }>("/api/models/find", { name, files }),
+  addModel: (name: string, files: string[]) =>
+    call<{ ok: boolean; added?: number; path?: string; list?: ModelInfo[]; error?: string }>(
+      "/api/models/add",
+      { name, files },
+    ),
   useModel: (path: string) =>
     call<{ current: string; list: ModelInfo[] }>("/api/models/use", { path }),
   startModelDownload: (mirror: string, dir?: string) =>

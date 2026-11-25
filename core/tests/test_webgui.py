@@ -73,6 +73,44 @@ def test_models_use_rejects_incomplete_dir(api, tmp_path):
         api.models_use({"path": str(empty)})
 
 
+def test_models_add_persists_to_config(api, tmp_path, monkeypatch):
+    """点「添加模型」＝写进 config.json 的 models.list（自动保存）。"""
+    from xifeng import config
+
+    model = tmp_path / "models" / "asr" / "my-asr"
+    model.mkdir(parents=True)
+    (model / "tokens.txt").write_text("x", encoding="utf-8")
+    (model / "model.int8.onnx").write_text("x", encoding="utf-8")
+    monkeypatch.setenv("IME_MODELS_DIR", str(model))
+
+    r = api.models_add({"name": "my-asr", "files": ["tokens.txt", "model.int8.onnx"]})
+    assert r["ok"] is True and r["added"] == 1
+
+    saved = config.load_models()
+    assert any(e["path"] == str(model.resolve()) for e in saved["list"])
+
+    boot = api.bootstrap()
+    entry = next(e for e in boot["models"]["list"] if e["path"] == str(model.resolve()))
+    assert entry["kind"] == "ASR"
+    assert entry["current"] is True
+
+
+def test_discover_includes_llm_gguf(api, tmp_path, monkeypatch):
+    """LLM 是 models/llm/*.gguf 单文件，必须进列表并记住当前选择。"""
+    root = tmp_path / "mroot"
+    (root / "llm").mkdir(parents=True)
+    gguf = root / "llm" / "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+    gguf.write_bytes(b"x")
+    monkeypatch.setenv("IME_MODELS_ROOT", str(root))
+
+    boot = api.bootstrap()
+    llm = [m for m in boot["models"]["list"] if m["kind"] == "llm"]
+    assert llm and llm[0]["path"] == str(gguf.resolve())
+    assert llm[0]["quant"] == "q4_k_m"
+    assert boot["models"]["current"]["llm"] == str(gguf.resolve())
+
+
+
 def test_history_endpoints(api):
     from xifeng.trace import Outcome, Trace
 

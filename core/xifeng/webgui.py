@@ -168,13 +168,88 @@ def _model_size(d: Path) -> int:
     return total
 
 
+def _model_kind(name: str) -> str:
+    """按目录名推断模型用途：ASR / llm（界面分类用，纯展示）。"""
+    n = name.lower()
+    if "qwen" in n or "llm" in n or "0.5b" in n or "1.5b" in n:
+        return "llm"
+    return "ASR"
+
+
+def _gguf_quant(name: str) -> str:
+    """从 gguf 文件名里取量化标签（q4_k_m / q8_0 / fp16 …）。"""
+    n = name.lower()
+    for tag in ("q4_k_m", "q4_k_s", "q5_k_m", "q5_k_s", "q6_k", "q8_0", "q5_0", "q4_0", "fp16", "f16"):
+        if tag in n:
+            return tag
+    return "gguf"
+
+
+def _llm_entries() -> list[dict]:
+    """LLM 模型是 `models/llm/*.gguf` 单文件（不是目录），单独扫描。"""
+    d = paths.models_root() / "llm"
+    out: list[dict] = []
+    try:
+        files = sorted(d.glob("*.gguf"))
+    except OSError:
+        return out
+    for f in files:
+        try:
+            size = f.stat().st_size
+        except OSError:
+            continue
+        out.append(
+            {
+                "path": str(f.resolve()),
+                "name": f.stem,
+                "kind": "llm",
+                "quant": _gguf_quant(f.name),
+                "size": size,
+                "ready": True,
+            }
+        )
+    return out
+
+
+def _model_entry(p: Path) -> dict:
+    """从一个模型目录构造 config.json `models.list` 里的条目。"""
+    return {
+        "path": str(p),
+        "name": p.name,
+        "kind": _model_kind(p.name),
+        "quant": _model_quant(p),
+        "size": _model_size(p),
+        "ready": _model_ready(p),
+    }
+
+
 def _discover(store: Store) -> dict:
-    raw = (user_settings.load(store).model_dir or "").strip()
-    current = Path(raw) if raw else paths.models_dir()
+    """扫描模型目录 + 读 config.json 的 models 块，合并后写回并返回。
+
+    `models.list` 是扫描快照（用户手放/新下载的模型能自动出现），`current`
+    是用户选择的持久化路径。ASR 是目录（tokens.txt + model*.onnx），LLM 是
+    `models/llm/*.gguf` 单文件。结果写回 config.json，保证文件里能看到列表。
+    """
+    models = config.load_models()
+    asr_cur = models["current"].get("asr") or str(paths.models_dir())
+
     found: dict[str, Path] = {}
-    if current.exists():
-        found[str(current.resolve())] = current
-    for parent in {current.parent, paths.models_dir().parent}:
+    # 1) config 里记录过的 ASR 路径（即使暂时不在默认扫描目录也保留）
+    for entry in models["list"]:
+        if str(entry.get("kind") or "ASR").lower() == "llm":
+            continue
+        p = Path(str(entry.get("path") or ""))
+        if p.is_dir():
+            found[str(p.resolve())] = p
+    cur_path = Path(asr_cur)
+    if not cur_path.is_dir():
+        # 配置里的路径已失效：退回默认 ASR 目录，避免 current 指向不存在的模型
+        asr_cur = str(paths.models_dir())
+        cur_path = Path(asr_cur)
+    if cur_path.is_dir():
+        found[str(cur_path.resolve())] = cur_path
+    # 2) 扫描默认模型根及其父目录
+    for parent in {cur_path.parent, paths.models_dir().parent}:
         try:
             if not parent.exists():
                 continue
@@ -183,20 +258,51 @@ def _discover(store: Store) -> dict:
                     found.setdefault(str(child.resolve()), child)
         except OSError:
             continue
-    lst = [
-        {
-            "path": str(p),
-            "name": p.name,
-            "quant": _model_quant(p),
-            "size": _model_size(p),
-            "ready": _model_ready(p),
-        }
+
+    asr_list = [
+        _model_entry(p)
         for p in sorted(found.values(), key=lambda p: (not _model_ready(p), p.name.lower()))
     ]
-    cur = str(current.resolve()) if current.exists() else str(current)
+
+    # 3) LLM：config 里记录过的 gguf + 扫描 models/llm/*.gguf
+    llm_found: dict[str, dict] = {}
+    for entry in models["list"]:
+        if str(entry.get("kind") or "").lower() != "llm":
+            continue
+        p = Path(str(entry.get("path") or ""))
+        if p.is_file():
+            llm_found[str(p.resolve())] = {**entry, "path": str(p.resolve()), "ready": True}
+    for entry in _llm_entries():
+        llm_found.setdefault(entry["path"], entry)
+    llm_list = sorted(llm_found.values(), key=lambda m: str(m.get("name") or "").lower())
+
+    llm_cur = models["current"].get("llm") or (llm_list[0]["path"] if llm_list else "")
+    if llm_cur and os.path.normcase(str(Path(llm_cur).resolve())) not in {
+        os.path.normcase(k) for k in llm_found
+    }:
+        # 配置里的 gguf 已不存在：退回第一个可用模型
+        llm_cur = llm_list[0]["path"] if llm_list else ""
+
+    lst = asr_list + llm_list
+    cur_keys = {
+        "asr": os.path.normcase(str(Path(asr_cur).resolve())),
+        "llm": os.path.normcase(str(Path(llm_cur).resolve())) if llm_cur else "",
+    }
     for m in lst:
-        m["current"] = os.path.normcase(m["path"]) == os.path.normcase(cur)
-    return {"current": cur, "list": lst}
+        key = "llm" if str(m.get("kind") or "").lower() == "llm" else "asr"
+        m["current"] = bool(cur_keys[key]) and os.path.normcase(m["path"]) == cur_keys[key]
+
+    # 写回 config.json（原子）：列表刷新 + 当前选择持久化
+    models["current"] = {
+        "asr": str(Path(asr_cur).resolve()),
+        "llm": str(Path(llm_cur).resolve()) if llm_cur else "",
+    }
+    models["list"] = lst
+    try:
+        config.save_models(models)
+    except Exception:  # noqa: BLE001 - 写失败不影响本次返回
+        pass
+    return {"current": dict(models["current"]), "list": lst}
 
 
 # ---------------------------------------------------------------- API
@@ -344,12 +450,27 @@ class Api:
         return self.settings_save({"theme": body.get("theme", "dark")})
 
     def models_use(self, body: dict) -> dict:
-        path = Path(body["path"])
-        if not _model_ready(path):
+        """切换当前模型：写 config.json models.current 并同步内存，自动保存。"""
+        raw = str(body.get("path") or "").strip()
+        if not raw:
+            raise ValueError("缺少 path")
+        path = Path(raw)
+        kind = _model_kind(path.name)
+        if kind == "llm":
+            if not path.is_file():
+                raise ValueError("文本润色模型必须是 .gguf 文件")
+        elif not _model_ready(path):
             raise ValueError("该目录缺少 model.onnx（或 int8）与 tokens.txt")
-        self.settings = user_settings.update(self.settings, model_dir=str(path))
-        user_settings.save(self.store, self.settings)
+        resolved = str(path.resolve())
+        models = config.load_models()
+        models["current"]["llm" if kind == "llm" else "asr"] = resolved
+        if not config.save_models(models):
+            raise ValueError(f"配置写入失败：{config.config_path()}")
+        # 同步内存里的 ASR 路径（进程内立即生效；下次启动从 config 读）
+        if kind != "llm":
+            self.settings = user_settings.update(self.settings, model_dir=resolved)
         return _discover(self.store)
+
     def autostart(self, body: dict) -> dict:
         try:
             if body.get("enabled"):
@@ -415,6 +536,55 @@ class Api:
             if len(matches) >= 5:
                 break
         return {"matches": matches}
+
+    def models_add(self, body: dict) -> dict:
+        """添加模型：按目录名+文件清单在本机找到模型目录，加入 models.list 并自动保存。"""
+        name = str(body.get("name") or "").strip().lower()
+        files = body.get("files") or []
+        wanted = set(str(f) for f in files)
+        if not name or not wanted:
+            return {"ok": False, "error": "缺少模型目录名或文件清单"}
+
+        roots = []
+        for r in (paths.models_dir().parent, paths.app_dir(), Path.home()):
+            try:
+                if r.exists() and r not in roots:
+                    roots.append(r)
+            except Exception:  # noqa: BLE001
+                pass
+        found: list[Path] = []
+        seen: set[str] = set()
+        for root in roots:
+            for dirpath, dirnames, filenames in os.walk(root):
+                if len(Path(dirpath).parts) - len(root.parts) > 3:
+                    dirnames[:] = []
+                    continue
+                low = Path(dirpath).name.lower()
+                if low == name and dirpath not in seen:
+                    fset = set(filenames)
+                    if "tokens.txt" in fset and ("model.int8.onnx" in fset or "model.onnx" in fset):
+                        p = Path(dirpath).resolve()
+                        found.append(p)
+                        seen.add(str(p))
+                if len(found) >= 5:
+                    break
+            if len(found) >= 5:
+                break
+        if not found:
+            return {"ok": False, "error": f"未在本机找到模型目录 {name}"}
+
+        models = config.load_models()
+        existing = {os.path.normcase(str(m.get("path") or "")) for m in models["list"]}
+        added = 0
+        for p in found:
+            key = os.path.normcase(str(p))
+            if key not in existing:
+                models["list"].append(_model_entry(p))
+                existing.add(key)
+                added += 1
+        if not config.save_models(models):
+            return {"ok": False, "error": f"配置写入失败：{config.config_path()}"}
+        return {"ok": True, "added": added, "path": str(found[0]), "list": models["list"]}
 
     def models_download_start(self, body: dict) -> dict:
         """启动后台下载，返回 {job_id, status: "queued"}。"""
@@ -519,6 +689,8 @@ class Api:
             target = config.config_path().parent
         else:
             target = Path(raw)
+            if target.is_file():
+                target = target.parent  # 模型是 gguf 文件时打开所在目录
         if sys.platform == "win32":
             os.startfile(str(target))  # noqa: S606
         return {"ok": True}
@@ -722,6 +894,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/prune": self.api.prune,
             "/api/check_update": self.api.check_update,
             "/api/models/find": self.api.models_find,
+            "/api/models/add": self.api.models_add,
             "/api/models/download/start": self.api.models_download_start,
             "/api/models/download/status": self.api.models_download_status,
             "/api/models/download/cancel": self.api.models_download_cancel,

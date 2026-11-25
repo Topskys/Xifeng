@@ -29,7 +29,8 @@ CONFIG_NAME = "config.json"
 BAD_SUFFIX = ".bad"
 
 #: 配置文件的 schema 版本（未来加字段时用于迁移）
-SCHEMA_VERSION = 1
+#: v2：模型列表与当前选择合并进 `models` 块，去掉顶层 model_dir / llm_model_dir
+SCHEMA_VERSION = 2
 
 
 def config_path() -> Path:
@@ -130,10 +131,46 @@ def load_raw() -> tuple[dict[str, Any], str]:
 
 
 def save_raw(data: dict[str, Any]) -> bool:
-    """写配置文件（原子）。失败返回 False，调用方负责降级。"""
-    payload = dict(data)
+    """写配置文件（原子，**合并**已有内容）。失败返回 False，调用方负责降级。
+
+    合并而非全量覆盖：`settings.save()` 只传扁平设置字典，而 `models` 块由
+    `webgui` 单独维护。若这里全量替换，保存一次设置就会把 models 块抹掉。
+    """
+    path = config_path()
+    existing = _read_json(path) or {}
+    payload = dict(existing)
+    payload.update(data)
+    # 旧字段（v1）不再使用：模型选择统一进 `models` 块
+    payload.pop("model_dir", None)
+    payload.pop("llm_model_dir", None)
     payload["schema_version"] = SCHEMA_VERSION
-    return _write_json_atomic(config_path(), payload)
+    return _write_json_atomic(path, payload)
+
+
+def load_models() -> dict[str, Any]:
+    """读 `models` 块：{"current": {"asr","llm"}, "list": [...]}。缺字段自动补。"""
+    raw, _ = load_raw()
+    block = raw.get("models")
+    if not isinstance(block, dict):
+        block = {}
+    current = block.get("current")
+    if not isinstance(current, dict):
+        current = {}
+    lst = block.get("list")
+    if not isinstance(lst, list):
+        lst = []
+    return {
+        "current": {
+            "asr": str(current.get("asr") or ""),
+            "llm": str(current.get("llm") or ""),
+        },
+        "list": [m for m in lst if isinstance(m, dict)],
+    }
+
+
+def save_models(models: dict[str, Any]) -> bool:
+    """只更新 `models` 块，其余配置原样保留（原子写）。"""
+    return save_raw({"models": models})
 
 
 def migrate_from_store(store: Any) -> bool:

@@ -120,7 +120,17 @@ _lock = threading.Lock()
 
 
 def model_path() -> Path:
-    """纠错模型路径；`IME_LLM_MODEL` 可覆盖（见 paths.llm_model_path）。"""
+    """纠错模型路径：config.json `models.current.llm` 优先，退回默认探测。"""
+    try:
+        from . import config
+
+        cur = config.load_models()["current"].get("llm") or ""
+        if cur:
+            p = Path(cur)
+            if p.is_file():
+                return p
+    except Exception:  # noqa: BLE001 - 配置读失败退回默认，不影响输入
+        pass
     return paths.llm_model_path()
 
 

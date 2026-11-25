@@ -109,6 +109,18 @@ def _as_choice(raw: object, choices: tuple[str, ...], default: str) -> str:
     return value if value in choices else default
 
 
+def _current_asr(raw: dict) -> str:
+    """当前 ASR 路径：models.current.asr 优先，兼容旧顶层 model_dir。"""
+    models = raw.get("models")
+    if isinstance(models, dict):
+        current = models.get("current")
+        if isinstance(current, dict):
+            asr_path = current.get("asr")
+            if asr_path:
+                return str(asr_path).strip()
+    return str(raw.get("model_dir") or "").strip()
+
+
 def load(store: object | None = None) -> Settings:
     """读设置；文件坏了/值非法时退回默认，绝不让 GUI 打不开。
 
@@ -152,7 +164,9 @@ def from_raw(raw: dict) -> Settings:
         trim_silence=_as_bool(get("trim_silence"), DEFAULTS.trim_silence),
         use_vad=_as_bool(get("use_vad"), DEFAULTS.use_vad),
         hotkey=hot,
-        model_dir=str(get("model_dir") or "").strip(),        threads=_as_int(get("threads"), DEFAULTS.threads, 1, 32),
+        # 当前 ASR 路径来自 config.json 的 models.current.asr（兼容旧顶层 model_dir）
+        model_dir=_current_asr(raw),
+        threads=_as_int(get("threads"), DEFAULTS.threads, 1, 32),
         download_source=_as_choice(
             get("download_source"), DOWNLOAD_SOURCES, DEFAULTS.download_source
         ),
@@ -173,8 +187,16 @@ def from_raw(raw: dict) -> Settings:
 
 
 def to_raw(settings: Settings) -> dict:
-    """设置 → 原始字典（写文件用）。元数据键不带。"""
-    return {k: v for k, v in settings.as_dict().items() if k not in _META_KEYS}
+    """设置 → 原始字典（写文件用）。元数据键与模型选择不带。
+
+    模型列表/当前选择统一存进 config.json 的 `models` 块（由 webgui 维护），
+    顶层不再写 `model_dir`；`model_dir` 字段仅作为进程内的 ASR 当前路径。
+    """
+    return {
+        k: v
+        for k, v in settings.as_dict().items()
+        if k not in _META_KEYS and k != "model_dir"
+    }
 
 
 def save(store: object | None, settings: Settings) -> bool:

@@ -30,6 +30,7 @@ CONTRACT_METHODS = {
     "theme",
     "models_use",
     "models_find",
+    "models_add",
     "models_download_start",
     "models_download_status",
     "models_download_cancel",
@@ -333,7 +334,7 @@ def test_serve_never_writes_non_json_even_when_api_prints(
 
 def test_method_table_matches_contract_and_api() -> None:
     assert set(ipc.METHODS) == CONTRACT_METHODS
-    assert len(ipc.METHODS) == 17
+    assert len(ipc.METHODS) == 18
     for method, target in ipc.METHODS.items():
         if method == "shutdown":
             assert target is None          # 主循环自己处理，没有 Api 方法

@@ -1,4 +1,4 @@
-import { FolderOpen, Plus, RefreshCw, Download, AlertCircle, Loader2 } from "lucide-react";
+import { FolderOpen, Plus, Download, Loader2, X } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { api, type Bootstrap } from "@/api";
@@ -15,19 +15,16 @@ function fmtSize(n: number) {
     : `${(n / 1024 ** 2).toFixed(0)} MB`;
 }
 
-/** 按目录名推断模型用途（截图里的「语音识别 / 文本润色」分类，纯文字用）。 */
-function modelKind(m: ModelInfo): string {
+/** 模型分类：ASR（语音识别） / llm（文本润色）。 */
+function modelKind(m: ModelInfo): "ASR" | "llm" {
+  if (m.kind) return m.kind;
   const n = m.name.toLowerCase();
-  if (n.includes("sensevoice") || n.includes("paraformer") || n.includes("firered") || n.includes("whisper")) {
-    return "语音识别";
-  }
   if (n.includes("qwen") || n.includes("llm") || n.includes("0.5b") || n.includes("1.5b")) {
-    return "文本润色";
+    return "llm";
   }
-  return "模型";
+  return "ASR";
 }
 
-/** 模型描述（截图里那行小字，纯文字用）。 */
 function modelDesc(m: ModelInfo): string {
   const n = m.name.toLowerCase();
   if (n.includes("sensevoice")) return "中英日粤韩 · 精度高速度快";
@@ -38,11 +35,14 @@ function modelDesc(m: ModelInfo): string {
   return "本地模型";
 }
 
-const MIRRORS = [
-  { value: "hf-mirror", label: "HuggingFace 镜像 (hf-mirror.com)" },
-  { value: "modelscope", label: "ModelScope (modelscope.cn)" },
-  { value: "github", label: "GitHub Release (huggingface.co)" },
-] as const;
+/** 小 tag（灰色、低调）。 */
+function Tag({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground">
+      {children}
+    </span>
+  );
+}
 
 export function ModelsPage({
   boot,
@@ -54,14 +54,12 @@ export function ModelsPage({
   refreshBoot: (b: Bootstrap) => void;
 }) {
   const { models } = boot;
-  const asrModels = models.list.filter((m) => modelKind(m) === "语音识别");
-  const llmModels = models.list.filter((m) => modelKind(m) === "文本润色");
+  const asrModels = models.list.filter((m) => modelKind(m) === "ASR");
+  const llmModels = models.list.filter((m) => modelKind(m) === "llm");
 
   const [downloading, setDownloading] = useState(false);
-  const [selectedMirror, setSelectedMirror] = useState<string>(MIRRORS[0].value);
   const [downloadJobId, setDownloadJobId] = useState<string | null>(null);
   const [downloadPct, setDownloadPct] = useState<number | null>(null);
-  const [downloadStatus, setDownloadStatus] = useState<string>("");
   const jobRef = useRef<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -93,41 +91,40 @@ export function ModelsPage({
     const rel = (files[0] as File & { webkitRelativePath?: string }).webkitRelativePath || "";
     const name = rel.split("/")[0];
     try {
-      const r = await api.modelsFind(name, names);
-      if (r.matches?.length) {
-        await switchModel(r.matches[0]);
-        showToast(`已添加并切换模型：${name}`);
-      } else {
-        showToast(`未在本机找到 ${name} 的模型目录（已搜索模型目录与用户目录）`, false);
+      // 点「添加模型」＝把该目录写进 config.json 的 models.list（自动保存）
+      const r = await api.addModel(name, names);
+      if (!r.ok) {
+        showToast(r.error || `未在本机找到 ${name} 的模型目录`, false);
+        return;
       }
+      if (r.path) await switchModel(r.path);
+      showToast(r.added ? `已添加并切换模型：${name}` : `模型已在列表中：${name}`);
     } catch (err) {
       showToast(String(err), false);
     }
   };
 
+  /** 下载 SenseVoice int8（默认镜像）。每个模型卡片的下载按钮都走这里。 */
   const handleDownload = async () => {
+    if (downloading) return;
     stopPolling();
     setDownloadJobId(null);
     setDownloadPct(null);
-    setDownloadStatus("queued");
     setDownloading(true);
-    jobRef.current = null;
     try {
-      const r = await api.startModelDownload(selectedMirror);
+      const r = await api.startModelDownload("hf-mirror");
       if (!r.job_id) {
-        setDownloadStatus("error");
         setDownloading(false);
-        showToast(`下载启动失败：${r.error || "未知错误"}`);
+        showToast(`下载启动失败：${r.error || "未知错误"}`, false);
         return;
       }
-      setDownloadJobId(r.job_id);
       jobRef.current = r.job_id;
+      setDownloadJobId(r.job_id);
       pollRef.current = setInterval(async () => {
-        if (!jobRef.current) { stopPolling(); setDownloading(false); return; }
+        if (!jobRef.current) { stopPolling(); return; }
         try {
           const s = await api.getModelDownloadStatus(jobRef.current);
           setDownloadPct(s.progress);
-          setDownloadStatus(s.status);
           if (s.status === "completed") {
             stopPolling();
             setDownloading(false);
@@ -140,7 +137,7 @@ export function ModelsPage({
             setDownloading(false);
             setDownloadJobId(null);
             jobRef.current = null;
-            showToast(`下载失败：${s.error || "未知错误"}`);
+            showToast(`下载失败：${s.error || "未知错误"}`, false);
           } else if (s.status === "cancelled") {
             stopPolling();
             setDownloading(false);
@@ -152,9 +149,8 @@ export function ModelsPage({
         }
       }, 1000);
     } catch (err) {
-      setDownloadStatus("error");
       setDownloading(false);
-      showToast(String(err));
+      showToast(String(err), false);
     }
   };
 
@@ -163,7 +159,6 @@ export function ModelsPage({
     api.cancelModelDownload(jobRef.current).catch(() => {});
     stopPolling();
     setDownloading(false);
-    setDownloadStatus("cancelled");
     setDownloadJobId(null);
     jobRef.current = null;
   };
@@ -178,15 +173,11 @@ export function ModelsPage({
     }
   };
 
-  /** 当前使用区下拉：显示「模型名（量化 · 大小）」，纯文字。 */
   const modelOptionLabel = (m: ModelInfo) => `${m.name}（${m.quant} · ${fmtSize(m.size)}）`;
 
   return (
     <div className="p-6 mx-auto w-full max-w-4xl">
       <PageHeader title="模型" desc="更换模型后下次说话生效">
-        <Button size="sm" variant="ghost" onClick={refresh} disabled={downloading}>
-          <RefreshCw className={downloading ? "animate-spin" : ""} /> 刷新
-        </Button>
         <input
           ref={fileInput}
           type="file"
@@ -202,83 +193,101 @@ export function ModelsPage({
         </Button>
       </PageHeader>
 
-      {/* 当前使用 */}
-      <div className="mb-2 mt-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
+      {/* 当前使用（紧凑） */}
+      <div className="mb-1 mt-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
         当前使用
       </div>
-      <Card className="mt-4 p-5">
-        <div className="mb-3 text-sm text-muted-foreground">语音识别模型</div>
-        <Select
-          value={asrModels.find((m) => m.current)?.path ?? ""}
-          onValueChange={switchModel}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="选择语音识别模型" />
-          </SelectTrigger>
-          <SelectContent>
-            {asrModels.map((m) => (
-              <SelectItem key={m.path} value={m.path}>{modelOptionLabel(m)}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <div className="mb-3 mt-4 text-sm text-muted-foreground">文本润色模型（可选）</div>
-        <Select
-          value={llmModels.find((m) => m.current)?.path ?? ""}
-          onValueChange={switchModel}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="选择文本润色模型" />
-          </SelectTrigger>
-          <SelectContent>
-            {llmModels.map((m) => (
-              <SelectItem key={m.path} value={m.path}>{modelOptionLabel(m)}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <Card className="mt-2 px-4 py-3">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <span className="w-28 shrink-0 text-xs text-muted-foreground">语音识别模型</span>
+            <Select
+              value={asrModels.find((m) => m.current)?.path ?? ""}
+              onValueChange={switchModel}
+            >
+              <SelectTrigger className="flex-1">
+                <SelectValue placeholder="选择语音识别模型" />
+              </SelectTrigger>
+              <SelectContent>
+                {asrModels.map((m) => (
+                  <SelectItem key={m.path} value={m.path}>{modelOptionLabel(m)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="w-28 shrink-0 text-xs text-muted-foreground">文本润色模型</span>
+            <Select
+              value={llmModels.find((m) => m.current)?.path ?? ""}
+              onValueChange={switchModel}
+            >
+              <SelectTrigger className="flex-1">
+                <SelectValue placeholder="选择文本润色模型（可选）" />
+              </SelectTrigger>
+              <SelectContent>
+                {llmModels.map((m) => (
+                  <SelectItem key={m.path} value={m.path}>{modelOptionLabel(m)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
       </Card>
 
       {/* 全部模型 */}
-      <div className="mt-6 mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
-        全部模型
+      <div className="mt-5 mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
+        模型列表
       </div>
       {models.list.length === 0 ? (
         <Card className="p-5">
           <div className="text-sm text-muted-foreground">未找到可用模型</div>
         </Card>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           {models.list.map((m) => (
-            <Card key={m.path} className="flex flex-row items-center gap-4 p-4">
+            <Card key={m.path} className="flex flex-row items-center gap-4 px-4 py-3">
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold">{m.name}</span>
-                  <span className="text-xs text-muted-foreground">{modelKind(m)}</span>
-                  <span className="text-xs text-muted-foreground">{m.quant}</span>
-                  {m.current && <span className="text-xs text-muted-foreground">使用中</span>}
+                  <Tag>{modelKind(m)}</Tag>
+                  {m.current && <Tag>使用中</Tag>}
                 </div>
-                <div className="mt-1 truncate text-xs text-muted-foreground/70">
-                  {modelDesc(m)} · {fmtSize(m.size)}
+                <div className="mt-1 flex items-center gap-2 truncate text-xs text-muted-foreground/70">
+                  <span>{modelDesc(m)}</span>
+                  <Tag>{m.quant}</Tag>
+                  <span>{fmtSize(m.size)}</span>
                 </div>
               </div>
-              <div className="flex shrink-0 gap-2">
-                {!m.current && (
+              <div className="flex shrink-0 items-center gap-2">
+                {/* 下载 icon 按钮 */}
+                {downloadJobId ? (
                   <Button
                     size="sm"
-                    variant="default"
-                    onClick={() => switchModel(m.path)}
-                    disabled={downloading}
+                    variant="outline"
+                    onClick={handleCancelDownload}
+                    title="取消下载"
                   >
+                    {downloadPct != null ? `${downloadPct}%` : <Loader2 className="animate-spin size-4" />}
+                    <X className="ml-1 size-3.5" />
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleDownload}
+                    disabled={downloading}
+                    title="下载模型"
+                  >
+                    {downloading ? <Loader2 className="animate-spin size-4" /> : <Download className="size-4" />}
+                  </Button>
+                )}
+                {!m.current && (
+                  <Button size="sm" variant="default" onClick={() => switchModel(m.path)} disabled={downloading}>
                     设为当前
                   </Button>
                 )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => api.open(m.path)}
-                  disabled={downloading}
-                >
-                  <FolderOpen /> 打开目录
+                <Button size="sm" variant="outline" title="打开目录" onClick={() => api.open(m.path)} disabled={downloading}>
+                  <FolderOpen /> 
                 </Button>
               </div>
             </Card>
@@ -286,78 +295,12 @@ export function ModelsPage({
         </div>
       )}
 
-      {/* 下载模型 */}
-      <div className="mt-6 mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
-        下载模型
-      </div>
-      <Card className="mt-4 p-5">
-        <div className="text-sm font-semibold mb-3">下载 SenseVoice int8 模型</div>
-        <p className="text-xs text-muted-foreground mb-4">
-          约 228 MB，下载后自动校验大小与文件完整性。支持断点续传。
-        </p>
-
-        <div className="flex flex-col sm:flex-row gap-3 mb-4">
-          <Select value={selectedMirror} onValueChange={setSelectedMirror}>
-            <SelectTrigger className="w-full sm:w-[200px]">
-              <SelectValue placeholder="选择下载源" />
-            </SelectTrigger>
-            <SelectContent>
-              {MIRRORS.map((m) => (
-                <SelectItem key={m.value} value={m.value}>
-                  {m.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Button
-            size="default"
-            variant={downloadStatus === "failed" || downloadStatus === "cancelled" ? "outline" : "default"}
-            onClick={downloadJobId ? handleCancelDownload : handleDownload}
-            disabled={downloadStatus === "completed"}
-            className="w-full sm:w-auto flex-1"
-          >
-            {downloadJobId ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {downloadStatus === "cancelled" ? "取消中…" : "取消下载"}
-              </>
-            ) : downloadStatus === "completed" ? (
-              <>
-                <Download className="mr-2 h-4 w-4" />
-                已下载
-              </>
-            ) : (
-              <>
-                <Download className="mr-2 h-4 w-4" />
-                开始下载
-              </>
-            )}
-          </Button>
+      {/* 下载完成/失败提示条（出错时显示，避免无反馈） */}
+      {downloadJobId && downloadPct != null && (
+        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="animate-spin size-3.5" /> 下载中 {downloadPct}%
         </div>
-
-        {downloadJobId && (
-          <div className="mb-3">
-            <div className="flex justify-between text-xs mb-1">
-              <span className="text-muted-foreground">{downloadStatus}</span>
-              <span className="text-muted-foreground">{downloadPct != null ? downloadPct + "%" : ""}</span>
-            </div>
-            <div className="w-full bg-secondary rounded-full h-2">
-              <div
-                className="bg-primary h-2 rounded-full transition-all duration-300"
-                style={{ width: downloadPct != null ? Math.max(0, Math.min(100, downloadPct)) : 0 }}
-              />
-            </div>
-          </div>
-        )}
-
-        {downloadStatus === "failed" && (
-          <div className="mb-3 p-3 text-xs bg-muted/50 rounded-md border border-border flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-            <span>下载失败，可重试。</span>
-          </div>
-        )}
-      </Card>
+      )}
     </div>
   );
 }

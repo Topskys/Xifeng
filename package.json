@@ -14,7 +14,8 @@
     "tauri:build": "pnpm --filter @xifeng/desktop tauri:build",
     "prepare": "husky",
     "changelog": "conventional-changelog -p conventionalcommits -i CHANGELOG.md -s",
-    "version": "pnpm changelog && git add CHANGELOG.md"
+    "version": "pnpm changelog && git add CHANGELOG.md",
+    "release": "gh release create v$npm_package_version --title \"Xifeng $npm_package_version\" --notes-file CHANGELOG.md \"$env:LOCALAPPDATA\\Xifeng-delivery\\$npm_package_version\\Xifeng_$npm_package_version_x64-setup.exe\" \"$env:LOCALAPPDATA\\Xifeng-delivery\\$npm_package_version\\Xifeng_$npm_package_version_x64-portable.zip\""
   },
   "devDependencies": {
     "conventional-changelog-cli": "^5.0.0",

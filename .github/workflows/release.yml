@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      # 用于 PyInstaller 等需要 UTF-8 的工具
+      PYTHONIOENCODING: utf-8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # conventional-changelog 需要完整历史
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rust-src
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'uv'
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache pnpm
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('core/uv.lock') }}
+
+      - name: Install uv
+        run: |
+          pip install uv
+
+      - name: Build Python sidecar
+        run: |
+          cd core
+          uv run python packaging/build_core.py --clean
+
+      - name: Install pnpm dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Tauri app
+        run: pnpm tauri:build
+
+      - name: Create portable zip
+        shell: pwsh
+        run: |
+          $src = "D:\Program Files (x86)\Xifeng"
+          $dst = "$env:GITHUB_WORKSPACE\Xifeng-portable"
+          if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
+          Copy-Item $src $dst -Recurse -Force
+          Compress-Archive -Path "$dst\*" -DestinationPath "$env:GITHUB_WORKSPACE\Xifeng-${{ github.ref_name }}-portable.zip" -Force
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Xifeng ${{ github.ref_name }}
+          body_path: CHANGELOG.md
+          files: |
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            Xifeng-${{ github.ref_name }}-portable.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

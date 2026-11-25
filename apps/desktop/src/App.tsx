@@ -2,7 +2,7 @@ import { BarChart3, Info, Mic, Moon, Package, Settings, Sun } from "lucide-react
 import { useCallback, useEffect, useState } from "react"
 
 import { api, type Bootstrap } from "@/api"
-import { ToastView } from "@/components/toast"
+import { Toaster } from "@/components/ui/sonner"
 import { useToast } from "@/hooks/useToast"
 import { applyTheme } from "@/lib/theme"
 import { cn } from "@/lib/utils"
@@ -59,7 +59,7 @@ export default function App() {
 function MainShell() {
   const [boot, setBoot] = useState<Bootstrap | null>(null)
   const [page, setPage] = useState<PageKey>(pageFromHash)
-  const { toast, showToast } = useToast()
+  const { showToast } = useToast()
 
   const setPageHash = useCallback((key: PageKey) => {
     setPage(key)
@@ -199,8 +199,12 @@ function MainShell() {
       </main>
       </div>
 
-      {/* toast */}
-      <ToastView toast={toast} />
+      {/* 全局提示（sonner） */}
+      <Toaster
+        position="bottom-right"
+        duration={3500}
+        theme={boot.settings.theme === "light" ? "light" : "dark"}
+      />
     </div>
   )
 }
